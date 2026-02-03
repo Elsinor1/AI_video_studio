@@ -24,8 +24,9 @@ INFO:     Uvicorn running on http://127.0.0.1:8000
 source .venv/Scripts/activate
 
 # Make sure Redis is running first!
-# Then start Celery worker (--concurrency=2 limits to 2 workers)
-celery -A backend.celery_worker worker --loglevel=info --concurrency=2
+# Then start Celery worker
+# Note: On Windows, use --pool=solo (Windows doesn't support prefork)
+celery -A backend.celery_worker worker --loglevel=info --pool=solo
 ```
 
 **Note:** You need Redis running. If you don't have it:

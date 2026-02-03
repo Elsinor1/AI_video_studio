@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import os
+import shutil
 from dotenv import load_dotenv
 
 from .database import SessionLocal, engine, Base
@@ -16,9 +17,8 @@ load_dotenv()
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# Create storage directories
-os.makedirs("storage/images", exist_ok=True)
-os.makedirs("storage/videos", exist_ok=True)
+# Create base storage directory (project-specific folders will be created as needed)
+os.makedirs("storage", exist_ok=True)
 
 app = FastAPI(title="AI Video Creator", version="1.0.0")
 
@@ -43,60 +43,88 @@ def get_db():
         db.close()
 
 
-# Script endpoints
-@app.post("/api/scripts", response_model=schemas.Script)
-def create_script(script: schemas.ScriptCreate, db: Session = Depends(get_db)):
-    """Create a new script draft"""
-    return crud.create_script(db=db, script=script)
+# Project endpoints
+@app.post("/api/projects", response_model=schemas.Project)
+def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)):
+    """Create a new project"""
+    return crud.create_project(db=db, project=project)
 
 
-@app.get("/api/scripts", response_model=list[schemas.Script])
-def list_scripts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """List all scripts"""
-    return crud.get_scripts(db=db, skip=skip, limit=limit)
+@app.get("/api/projects", response_model=list[schemas.Project])
+def list_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """List all projects"""
+    return crud.get_projects(db=db, skip=skip, limit=limit)
 
 
-@app.get("/api/scripts/{script_id}", response_model=schemas.Script)
-def get_script(script_id: int, db: Session = Depends(get_db)):
-    """Get a specific script"""
-    script = crud.get_script(db=db, script_id=script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Script not found")
-    return script
+@app.get("/api/projects/{project_id}", response_model=schemas.Project)
+def get_project(project_id: int, db: Session = Depends(get_db)):
+    """Get a specific project"""
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
 
 
-@app.put("/api/scripts/{script_id}", response_model=schemas.Script)
-def update_script(script_id: int, script: schemas.ScriptUpdate, db: Session = Depends(get_db)):
-    """Update a script"""
-    updated = crud.update_script(db=db, script_id=script_id, script=script)
+@app.put("/api/projects/{project_id}", response_model=schemas.Project)
+def update_project(project_id: int, project: schemas.ProjectUpdate, db: Session = Depends(get_db)):
+    """Update a project"""
+    updated = crud.update_project(db=db, project_id=project_id, project=project)
     if not updated:
-        raise HTTPException(status_code=404, detail="Script not found")
+        raise HTTPException(status_code=404, detail="Project not found")
     return updated
 
 
-@app.post("/api/scripts/{script_id}/approve")
-def approve_script(script_id: int, db: Session = Depends(get_db)):
-    """Approve script and trigger scene segmentation"""
-    script = crud.get_script(db=db, script_id=script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Script not found")
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db)):
+    """Delete a project and all associated data"""
+    deleted = crud.delete_project(db=db, project_id=project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Move project's storage folder to removed directory
+    project_storage_path = os.path.join("storage", f"project_{project_id}")
+    removed_dir = os.path.join("storage", "removed")
+    removed_project_path = os.path.join(removed_dir, f"project_{project_id}")
+    
+    if os.path.exists(project_storage_path):
+        try:
+            # Create removed directory if it doesn't exist
+            os.makedirs(removed_dir, exist_ok=True)
+            # Move the folder to removed directory
+            if os.path.exists(removed_project_path):
+                # If destination already exists, remove it first
+                shutil.rmtree(removed_project_path)
+            shutil.move(project_storage_path, removed_project_path)
+        except Exception as e:
+            # Log error but don't fail the deletion
+            print(f"Warning: Could not move storage folder for project {project_id}: {e}")
+    
+    return {"message": "Project deleted successfully"}
+
+
+@app.post("/api/projects/{project_id}/approve")
+def approve_project(project_id: int, db: Session = Depends(get_db)):
+    """Approve project script and trigger scene segmentation"""
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     
     # Update status
-    script.status = "approved"
+    project.status = "approved"
     db.commit()
     
     # Trigger scene segmentation
-    from .tasks import segment_script_task
-    segment_script_task.delay(script_id)
+    from .tasks import segment_project_task
+    segment_project_task.delay(project_id)
     
-    return {"message": "Script approved, scene segmentation started"}
+    return {"message": "Project approved, scene segmentation started"}
 
 
 # Scene endpoints
-@app.get("/api/scripts/{script_id}/scenes", response_model=list[schemas.Scene])
-def get_scenes(script_id: int, db: Session = Depends(get_db)):
-    """Get all scenes for a script"""
-    return crud.get_scenes_by_script(db=db, script_id=script_id)
+@app.get("/api/projects/{project_id}/scenes", response_model=list[schemas.Scene])
+def get_scenes(project_id: int, db: Session = Depends(get_db)):
+    """Get all scenes for a project"""
+    return crud.get_scenes_by_project(db=db, project_id=project_id)
 
 
 @app.put("/api/scenes/{scene_id}", response_model=schemas.Scene)
@@ -109,7 +137,7 @@ def update_scene(scene_id: int, scene: schemas.SceneUpdate, db: Session = Depend
 
 
 @app.post("/api/scenes/{scene_id}/approve")
-def approve_scene(scene_id: int, db: Session = Depends(get_db)):
+def approve_scene(scene_id: int, visual_style_id: int = None, db: Session = Depends(get_db)):
     """Approve scene and trigger image generation"""
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
@@ -118,9 +146,9 @@ def approve_scene(scene_id: int, db: Session = Depends(get_db)):
     scene.status = "approved"
     db.commit()
     
-    # Trigger image generation
+    # Trigger image generation with visual style
     from .tasks import generate_image_task
-    generate_image_task.delay(scene_id)
+    generate_image_task.delay(scene_id, visual_style_id)
     
     return {"message": "Scene approved, image generation started"}
 
@@ -146,7 +174,7 @@ def approve_image(image_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/images/{image_id}/reject")
-def reject_image(image_id: int, db: Session = Depends(get_db)):
+def reject_image(image_id: int, visual_style_id: int = None, db: Session = Depends(get_db)):
     """Reject an image and generate a new one"""
     image = crud.get_image(db=db, image_id=image_id)
     if not image:
@@ -155,24 +183,27 @@ def reject_image(image_id: int, db: Session = Depends(get_db)):
     image.status = "rejected"
     db.commit()
     
+    # Use the same visual style if not specified
+    style_id = visual_style_id if visual_style_id else image.visual_style_id
+    
     # Generate new image
     from .tasks import generate_image_task
-    generate_image_task.delay(image.scene_id)
+    generate_image_task.delay(image.scene_id, style_id)
     
     return {"message": "Image rejected, generating new one"}
 
 
 # Video endpoints
-@app.post("/api/scripts/{script_id}/create-video")
-def create_video(script_id: int, db: Session = Depends(get_db)):
+@app.post("/api/projects/{project_id}/create-video")
+def create_video(project_id: int, db: Session = Depends(get_db)):
     """Create video from approved images"""
-    script = crud.get_script(db=db, script_id=script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Script not found")
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     
     # Trigger video creation
     from .tasks import create_video_task
-    create_video_task.delay(script_id)
+    create_video_task.delay(project_id)
     
     return {"message": "Video creation started"}
 
@@ -186,13 +217,53 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
     return video
 
 
-@app.get("/api/scripts/{script_id}/video", response_model=schemas.Video)
-def get_script_video(script_id: int, db: Session = Depends(get_db)):
-    """Get video for a script"""
-    video = crud.get_video_by_script(db=db, script_id=script_id)
+@app.get("/api/projects/{project_id}/video", response_model=schemas.Video)
+def get_project_video(project_id: int, db: Session = Depends(get_db)):
+    """Get video for a project"""
+    video = crud.get_video_by_project(db=db, project_id=project_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
+
+
+# Visual Style endpoints
+@app.post("/api/visual-styles", response_model=schemas.VisualStyle)
+def create_visual_style(visual_style: schemas.VisualStyleCreate, db: Session = Depends(get_db)):
+    """Create a new visual style"""
+    return crud.create_visual_style(db=db, visual_style=visual_style)
+
+
+@app.get("/api/visual-styles", response_model=list[schemas.VisualStyle])
+def list_visual_styles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """List all visual styles"""
+    return crud.get_visual_styles(db=db, skip=skip, limit=limit)
+
+
+@app.get("/api/visual-styles/{style_id}", response_model=schemas.VisualStyle)
+def get_visual_style(style_id: int, db: Session = Depends(get_db)):
+    """Get a specific visual style"""
+    style = crud.get_visual_style(db=db, style_id=style_id)
+    if not style:
+        raise HTTPException(status_code=404, detail="Visual style not found")
+    return style
+
+
+@app.put("/api/visual-styles/{style_id}", response_model=schemas.VisualStyle)
+def update_visual_style(style_id: int, visual_style: schemas.VisualStyleUpdate, db: Session = Depends(get_db)):
+    """Update a visual style"""
+    updated = crud.update_visual_style(db=db, style_id=style_id, visual_style=visual_style)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Visual style not found")
+    return updated
+
+
+@app.delete("/api/visual-styles/{style_id}")
+def delete_visual_style(style_id: int, db: Session = Depends(get_db)):
+    """Delete a visual style"""
+    deleted = crud.delete_visual_style(db=db, style_id=style_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Visual style not found")
+    return {"message": "Visual style deleted successfully"}
 
 
 if __name__ == "__main__":

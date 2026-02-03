@@ -56,8 +56,8 @@ netstat -an | findstr 6379
 
 ## After Redis is Running
 
-Restart Celery with the concurrency limit:
+Restart Celery (Windows requires --pool=solo):
 ```bash
 source .venv/Scripts/activate
-celery -A backend.celery_worker worker --loglevel=info --concurrency=2
+celery -A backend.celery_worker worker --loglevel=info --pool=solo
 ```

@@ -6,35 +6,45 @@ from sqlalchemy import desc
 from . import models, schemas
 
 
-# Script CRUD
-def create_script(db: Session, script: schemas.ScriptCreate):
-    db_script = models.Script(**script.dict())
-    db.add(db_script)
+# Project CRUD
+def create_project(db: Session, project: schemas.ProjectCreate):
+    db_project = models.Project(**project.dict())
+    db.add(db_project)
     db.commit()
-    db.refresh(db_script)
-    return db_script
+    db.refresh(db_project)
+    return db_project
 
 
-def get_script(db: Session, script_id: int):
-    return db.query(models.Script).filter(models.Script.id == script_id).first()
+def get_project(db: Session, project_id: int):
+    return db.query(models.Project).filter(models.Project.id == project_id).first()
 
 
-def get_scripts(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Script).order_by(desc(models.Script.created_at)).offset(skip).limit(limit).all()
+def get_projects(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.Project).order_by(desc(models.Project.created_at)).offset(skip).limit(limit).all()
 
 
-def update_script(db: Session, script_id: int, script: schemas.ScriptUpdate):
-    db_script = db.query(models.Script).filter(models.Script.id == script_id).first()
-    if not db_script:
+def update_project(db: Session, project_id: int, project: schemas.ProjectUpdate):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not db_project:
         return None
     
-    update_data = script.dict(exclude_unset=True)
+    update_data = project.dict(exclude_unset=True)
     for field, value in update_data.items():
-        setattr(db_script, field, value)
+        setattr(db_project, field, value)
     
     db.commit()
-    db.refresh(db_script)
-    return db_script
+    db.refresh(db_project)
+    return db_project
+
+
+def delete_project(db: Session, project_id: int):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not db_project:
+        return False
+    
+    db.delete(db_project)
+    db.commit()
+    return True
 
 
 # Scene CRUD
@@ -50,8 +60,8 @@ def get_scene(db: Session, scene_id: int):
     return db.query(models.Scene).filter(models.Scene.id == scene_id).first()
 
 
-def get_scenes_by_script(db: Session, script_id: int):
-    return db.query(models.Scene).filter(models.Scene.script_id == script_id).order_by(models.Scene.order).all()
+def get_scenes_by_project(db: Session, project_id: int):
+    return db.query(models.Scene).filter(models.Scene.project_id == project_id).order_by(models.Scene.order).all()
 
 
 def update_scene(db: Session, scene_id: int, scene: schemas.SceneUpdate):
@@ -66,6 +76,47 @@ def update_scene(db: Session, scene_id: int, scene: schemas.SceneUpdate):
     db.commit()
     db.refresh(db_scene)
     return db_scene
+
+
+# Visual Style CRUD
+def create_visual_style(db: Session, visual_style: schemas.VisualStyleCreate):
+    db_style = models.VisualStyle(**visual_style.dict())
+    db.add(db_style)
+    db.commit()
+    db.refresh(db_style)
+    return db_style
+
+
+def get_visual_style(db: Session, style_id: int):
+    return db.query(models.VisualStyle).filter(models.VisualStyle.id == style_id).first()
+
+
+def get_visual_styles(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.VisualStyle).order_by(desc(models.VisualStyle.created_at)).offset(skip).limit(limit).all()
+
+
+def update_visual_style(db: Session, style_id: int, visual_style: schemas.VisualStyleUpdate):
+    db_style = db.query(models.VisualStyle).filter(models.VisualStyle.id == style_id).first()
+    if not db_style:
+        return None
+    
+    update_data = visual_style.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_style, field, value)
+    
+    db.commit()
+    db.refresh(db_style)
+    return db_style
+
+
+def delete_visual_style(db: Session, style_id: int):
+    db_style = db.query(models.VisualStyle).filter(models.VisualStyle.id == style_id).first()
+    if not db_style:
+        return False
+    
+    db.delete(db_style)
+    db.commit()
+    return True
 
 
 # Image CRUD
@@ -99,8 +150,8 @@ def update_image(db: Session, image_id: int, **kwargs):
 
 
 # Video CRUD
-def create_video(db: Session, script_id: int):
-    db_video = models.Video(script_id=script_id)
+def create_video(db: Session, project_id: int):
+    db_video = models.Video(project_id=project_id)
     db.add(db_video)
     db.commit()
     db.refresh(db_video)
@@ -111,6 +162,6 @@ def get_video(db: Session, video_id: int):
     return db.query(models.Video).filter(models.Video.id == video_id).first()
 
 
-def get_video_by_script(db: Session, script_id: int):
-    return db.query(models.Video).filter(models.Video.script_id == script_id).order_by(desc(models.Video.created_at)).first()
+def get_video_by_project(db: Session, project_id: int):
+    return db.query(models.Video).filter(models.Video.project_id == project_id).order_by(desc(models.Video.created_at)).first()
 

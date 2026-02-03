@@ -10,7 +10,7 @@ echo Terminal 1 - Backend:
 echo   uvicorn backend.main:app --reload --port 8000
 echo.
 echo Terminal 2 - Celery Worker:
-echo   celery -A backend.celery_worker worker --loglevel=info
+echo   celery -A backend.celery_worker worker --loglevel=info --pool=solo
 echo.
 echo Terminal 3 - Frontend:
 echo   cd frontend

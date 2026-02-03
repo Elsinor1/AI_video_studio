@@ -26,56 +26,69 @@ celery_app.conf.update(
 
 
 @celery_app.task
-def segment_script_task(script_id: int):
-    """Segment a script into scenes"""
+def segment_project_task(project_id: int):
+    """Segment a project's script content into scenes"""
     db = SessionLocal()
     try:
-        script = crud.get_script(db=db, script_id=script_id)
-        if not script:
-            return {"error": "Script not found"}
+        project = crud.get_project(db=db, project_id=project_id)
+        if not project:
+            return {"error": "Project not found"}
         
-        # Segment script
-        scenes_data = ai_services.segment_script(script.content)
+        # Segment project's script content
+        scenes_data = ai_services.segment_script(project.script_content)
         
         # Create scenes in database
         for scene_data in scenes_data:
             crud.create_scene(
                 db=db,
                 scene=schemas.SceneCreate(
-                    script_id=script_id,
+                    project_id=project_id,
                     text=scene_data["text"],
                     order=scene_data["order"]
                 )
             )
         
-        return {"message": f"Created {len(scenes_data)} scenes", "script_id": script_id}
+        return {"message": f"Created {len(scenes_data)} scenes", "project_id": project_id}
     finally:
         db.close()
 
 
 @celery_app.task
-def generate_image_task(scene_id: int):
-    """Generate image for a scene"""
+def generate_image_task(scene_id: int, visual_style_id: int = None):
+    """Generate image for a scene with optional visual style"""
     db = SessionLocal()
     try:
         scene = crud.get_scene(db=db, scene_id=scene_id)
         if not scene:
             return {"error": "Scene not found"}
         
-        # Generate image prompt
-        prompt = ai_services.generate_image_prompt(scene.text)
+        # Get project_id from scene
+        project_id = scene.project_id
+        
+        # Get visual style description and parameters if provided
+        visual_style_description = None
+        visual_style_params = None
+        if visual_style_id:
+            visual_style = crud.get_visual_style(db=db, style_id=visual_style_id)
+            if visual_style:
+                visual_style_description = visual_style.description
+                visual_style_params = visual_style.parameters
+        
+        # Generate image prompt with visual style
+        prompt = ai_services.generate_image_prompt(scene.text, visual_style_description, visual_style_params)
         
         # Create image record
         image = crud.create_image(
             db=db,
             image=schemas.ImageCreate(
                 scene_id=scene_id,
+                visual_style_id=visual_style_id,
                 prompt=prompt
             )
         )
         
-        # Generate image
-        output_dir = os.path.join("storage", "images", f"scene_{scene_id}")
+        # Generate image in project-specific folder
+        output_dir = os.path.join("storage", f"project_{project_id}", "images", f"scene_{scene_id}")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"image_{image.id}.png")
         
@@ -94,16 +107,16 @@ def generate_image_task(scene_id: int):
 
 
 @celery_app.task
-def create_video_task(script_id: int):
+def create_video_task(project_id: int):
     """Create video from approved images"""
     db = SessionLocal()
     try:
-        script = crud.get_script(db=db, script_id=script_id)
-        if not script:
-            return {"error": "Script not found"}
+        project = crud.get_project(db=db, project_id=project_id)
+        if not project:
+            return {"error": "Project not found"}
         
         # Get all scenes with approved images
-        scenes = crud.get_scenes_by_script(db=db, script_id=script_id)
+        scenes = crud.get_scenes_by_project(db=db, project_id=project_id)
         image_paths = []
         
         for scene in scenes:
@@ -118,10 +131,10 @@ def create_video_task(script_id: int):
             return {"error": "No approved images found"}
         
         # Create video record
-        video = crud.create_video(db=db, script_id=script_id)
+        video = crud.create_video(db=db, project_id=project_id)
         
-        # Generate video
-        output_dir = os.path.join("storage", "videos")
+        # Generate video in project-specific folder
+        output_dir = os.path.join("storage", f"project_{project_id}", "videos")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"video_{video.id}.mp4")
         
@@ -137,7 +150,7 @@ def create_video_task(script_id: int):
             db.commit()
             return {"error": str(e)}
         
-        return {"message": "Video created", "video_id": video.id, "script_id": script_id}
+        return {"message": "Video created", "video_id": video.id, "project_id": project_id}
     finally:
         db.close()
 

@@ -1,108 +1,177 @@
 import React, { useState, useEffect } from 'react'
+import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
 import axios from 'axios'
+import NavigationBar from './components/NavigationBar'
 import ScriptList from './components/ScriptList'
 import ScriptEditor from './components/ScriptEditor'
 import SceneEditor from './components/SceneEditor'
 import ImageGallery from './components/ImageGallery'
 import VideoViewer from './components/VideoViewer'
+import VisualStylesList from './components/VisualStylesList'
 import './App.css'
 
 const API_BASE = '/api'
 
 function App() {
-  const [scripts, setScripts] = useState([])
-  const [selectedScript, setSelectedScript] = useState(null)
-  const [view, setView] = useState('list') // 'list', 'script', 'scenes', 'images', 'video'
-  const [loading, setLoading] = useState(false)
+  const [projects, setProjects] = useState([])
 
   useEffect(() => {
-    loadScripts()
+    loadProjects()
   }, [])
 
-  const loadScripts = async () => {
+  const loadProjects = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/scripts`)
-      setScripts(response.data)
+      const response = await axios.get(`${API_BASE}/projects`)
+      setProjects(response.data)
     } catch (error) {
-      console.error('Error loading scripts:', error)
+      console.error('Error loading projects:', error)
     }
-  }
-
-  const handleCreateScript = () => {
-    setSelectedScript(null)
-    setView('script')
-  }
-
-  const handleSelectScript = (script) => {
-    setSelectedScript(script)
-    setView('script')
-  }
-
-  const handleScriptSaved = () => {
-    loadScripts()
-    if (selectedScript) {
-      setView('scenes')
-    }
-  }
-
-  const handleScriptApproved = () => {
-    loadScripts()
-    setTimeout(() => {
-      setView('scenes')
-    }, 1000)
   }
 
   return (
-    <div className="container">
-      <div className="header">
-        <h1>🎬 AI Video Creator</h1>
-        <p>Workflow: Script → Scenes → Images → Video</p>
+    <div>
+      <NavigationBar />
+      <div className="container">
+        <div className="header">
+          <p>Workflow: Project → Script → Scenes → Images → Video</p>
+        </div>
+
+        <Routes>
+        <Route path="/" element={<ProjectListPage projects={projects} onProjectsChange={loadProjects} />} />
+        <Route path="/projects/new" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
+        <Route path="/projects/:id" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
+        <Route path="/projects/:id/scenes" element={<SceneEditorPage />} />
+        <Route path="/projects/:id/images" element={<ImageGalleryPage />} />
+        <Route path="/projects/:id/video" element={<VideoViewerPage />} />
+        <Route path="/styles" element={<VisualStylesList />} />
+        </Routes>
       </div>
-
-      {view === 'list' && (
-        <ScriptList
-          scripts={scripts}
-          onSelectScript={handleSelectScript}
-          onCreateScript={handleCreateScript}
-        />
-      )}
-
-      {view === 'script' && (
-        <ScriptEditor
-          script={selectedScript}
-          onSave={handleScriptSaved}
-          onApprove={handleScriptApproved}
-          onBack={() => {
-            setView('list')
-            setSelectedScript(null)
-          }}
-          onNext={() => setView('scenes')}
-        />
-      )}
-
-      {view === 'scenes' && selectedScript && (
-        <SceneEditor
-          scriptId={selectedScript.id}
-          onBack={() => setView('script')}
-          onNext={() => setView('images')}
-        />
-      )}
-
-      {view === 'images' && selectedScript && (
-        <ImageGallery
-          scriptId={selectedScript.id}
-          onBack={() => setView('scenes')}
-          onNext={() => setView('video')}
-        />
-      )}
-
-      {view === 'video' && selectedScript && (
-        <VideoViewer
-          scriptId={selectedScript.id}
-          onBack={() => setView('images')}
-        />
-      )}
     </div>
+  )
+}
+
+function ProjectListPage({ projects, onProjectsChange }) {
+  const navigate = useNavigate()
+
+  const handleCreateProject = () => {
+    navigate('/projects/new')
+  }
+
+  const handleSelectProject = (project) => {
+    navigate(`/projects/${project.id}`)
+  }
+
+  return (
+    <ScriptList
+      scripts={projects}
+      onSelectScript={handleSelectProject}
+      onCreateScript={handleCreateProject}
+    />
+  )
+}
+
+function ProjectEditorPage({ onProjectsChange }) {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const [project, setProject] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (id) {
+      loadProject()
+    } else {
+      setLoading(false)
+    }
+  }, [id])
+
+  const loadProject = async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/projects/${id}`)
+      setProject(response.data)
+    } catch (error) {
+      console.error('Error loading project:', error)
+      navigate('/')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleProjectSaved = (savedProject) => {
+    onProjectsChange()
+    if (savedProject && !id) {
+      // New project was created, navigate to its edit page
+      navigate(`/projects/${savedProject.id}`, { replace: true })
+    } else {
+      // Reload project data
+      if (id) {
+        loadProject()
+      }
+    }
+  }
+
+  const handleProjectApproved = () => {
+    onProjectsChange()
+    setTimeout(() => {
+      navigate(`/projects/${id}/scenes`)
+    }, 1000)
+  }
+
+  const handleProjectDeleted = () => {
+    onProjectsChange()
+    navigate('/')
+  }
+
+  if (loading) {
+    return <div className="card">Loading...</div>
+  }
+
+  return (
+    <ScriptEditor
+      script={project}
+      onSave={handleProjectSaved}
+      onApprove={handleProjectApproved}
+      onDelete={handleProjectDeleted}
+      onBack={() => navigate('/')}
+      onNext={() => navigate(`/projects/${id}/scenes`)}
+    />
+  )
+}
+
+function SceneEditorPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+
+  return (
+    <SceneEditor
+      scriptId={parseInt(id)}
+      onBack={() => navigate(`/projects/${id}`)}
+      onNext={() => navigate(`/projects/${id}/images`)}
+    />
+  )
+}
+
+function ImageGalleryPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+
+  return (
+    <ImageGallery
+      scriptId={parseInt(id)}
+      onBack={() => navigate(`/projects/${id}/scenes`)}
+      onNext={() => navigate(`/projects/${id}/video`)}
+    />
+  )
+}
+
+function VideoViewerPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+
+  return (
+    <VideoViewer
+      scriptId={parseInt(id)}
+      onBack={() => navigate(`/projects/${id}/images`)}
+    />
   )
 }
 

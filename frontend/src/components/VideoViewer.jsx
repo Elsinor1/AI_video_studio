@@ -14,7 +14,7 @@ function VideoViewer({ scriptId, onBack }) {
 
   const loadVideo = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/scripts/${scriptId}/video`)
+      const response = await axios.get(`${API_BASE}/projects/${scriptId}/video`)
       setVideo(response.data)
     } catch (error) {
       if (error.response?.status === 404) {
@@ -34,12 +34,12 @@ function VideoViewer({ scriptId, onBack }) {
 
     setCreating(true)
     try {
-      await axios.post(`${API_BASE}/scripts/${scriptId}/create-video`)
+      await axios.post(`${API_BASE}/projects/${scriptId}/create-video`)
       alert('Video creation started! This may take a few minutes. Check back soon.')
       // Poll for video
       const interval = setInterval(async () => {
         try {
-          const response = await axios.get(`${API_BASE}/scripts/${scriptId}/video`)
+          const response = await axios.get(`${API_BASE}/projects/${scriptId}/video`)
           if (response.data && response.data.status === 'approved') {
             setVideo(response.data)
             clearInterval(interval)

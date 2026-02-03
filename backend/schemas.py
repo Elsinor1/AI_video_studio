@@ -6,22 +6,22 @@ from typing import Optional
 from datetime import datetime
 
 
-class ScriptBase(BaseModel):
+class ProjectBase(BaseModel):
     title: Optional[str] = None
-    content: str
+    script_content: str  # Script is now a field within Project
 
 
-class ScriptCreate(ScriptBase):
+class ProjectCreate(ProjectBase):
     pass
 
 
-class ScriptUpdate(BaseModel):
+class ProjectUpdate(BaseModel):
     title: Optional[str] = None
-    content: Optional[str] = None
+    script_content: Optional[str] = None
     status: Optional[str] = None
 
 
-class Script(ScriptBase):
+class Project(ProjectBase):
     id: int
     status: str
     created_at: datetime
@@ -37,7 +37,7 @@ class SceneBase(BaseModel):
 
 
 class SceneCreate(SceneBase):
-    script_id: int
+    project_id: int
 
 
 class SceneUpdate(BaseModel):
@@ -48,8 +48,33 @@ class SceneUpdate(BaseModel):
 
 class Scene(SceneBase):
     id: int
-    script_id: int
+    project_id: int
     status: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class VisualStyleBase(BaseModel):
+    name: str
+    description: str  # Rich narrative description of the visual style
+    parameters: Optional[str] = "{}"  # Optional JSON string with additional visual parameters
+
+
+class VisualStyleCreate(VisualStyleBase):
+    pass
+
+
+class VisualStyleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[str] = None
+
+
+class VisualStyle(VisualStyleBase):
+    id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
     
@@ -63,11 +88,13 @@ class ImageBase(BaseModel):
 
 class ImageCreate(ImageBase):
     scene_id: int
+    visual_style_id: Optional[int] = None
 
 
 class Image(ImageBase):
     id: int
     scene_id: int
+    visual_style_id: Optional[int] = None
     file_path: Optional[str] = None
     url: Optional[str] = None
     status: str
@@ -83,7 +110,7 @@ class VideoBase(BaseModel):
 
 class Video(VideoBase):
     id: int
-    script_id: int
+    project_id: int
     file_path: Optional[str] = None
     url: Optional[str] = None
     status: str

@@ -16,14 +16,14 @@ function ScriptList({ scripts, onSelectScript, onCreateScript }) {
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>Scripts</h2>
+        <h2>Projects</h2>
         <button className="btn btn-primary" onClick={onCreateScript}>
-          + New Script
+          + New Project
         </button>
       </div>
 
       {scripts.length === 0 ? (
-        <p>No scripts yet. Create your first script to get started!</p>
+        <p>No projects yet. Create your first project to get started!</p>
       ) : (
         <div>
           {scripts.map((script) => (
@@ -35,9 +35,9 @@ function ScriptList({ scripts, onSelectScript, onCreateScript }) {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h3>{script.title || `Script #${script.id}`}</h3>
+                  <h3>{script.title || `Project #${script.id}`}</h3>
                   <p style={{ color: '#666', marginTop: '5px' }}>
-                    {script.content.substring(0, 150)}...
+                    {script.script_content.substring(0, 150)}...
                   </p>
                 </div>
                 <span className={`status-badge ${getStatusColor(script.status)}`}>

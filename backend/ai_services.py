@@ -65,21 +65,51 @@ Format: [{{"text": "...", "order": 1}}, {{"text": "...", "order": 2}}, ...]
         return [{"text": p, "order": i + 1} for i, p in enumerate(paragraphs)]
 
 
-def generate_image_prompt(scene_text: str) -> str:
+def generate_image_prompt(scene_text: str, visual_style_description: str = None, visual_style_params: str = None) -> str:
     """
-    Generate an image generation prompt from scene text
+    Generate an image generation prompt from scene text and visual style description/parameters
     """
+    style_instruction = ""
+    
+    # Use description as primary source (rich narrative description)
+    if visual_style_description:
+        style_instruction = f"\n\nVisual Style Description:\n{visual_style_description}"
+    elif visual_style_params:
+        # Fallback to parameters if description not available
+        try:
+            import json
+            params = json.loads(visual_style_params)
+            style_parts = []
+            if params.get("style"):
+                style_parts.append(f"Style: {params['style']}")
+            if params.get("mood"):
+                style_parts.append(f"Mood: {params['mood']}")
+            if params.get("color_palette"):
+                style_parts.append(f"Color palette: {params['color_palette']}")
+            if params.get("lighting"):
+                style_parts.append(f"Lighting: {params['lighting']}")
+            if params.get("camera_angle"):
+                style_parts.append(f"Camera angle: {params['camera_angle']}")
+            if params.get("additional_notes"):
+                style_parts.append(f"Additional notes: {params['additional_notes']}")
+            
+            if style_parts:
+                style_instruction = "\n\nVisual Style Parameters:\n" + "\n".join(style_parts)
+        except:
+            # If JSON parsing fails, use params as-is
+            style_instruction = f"\n\nVisual Style: {visual_style_params}"
+    
     prompt = f"""Create a detailed, cinematic image generation prompt for this video scene:
 
-Scene: {scene_text}
+Scene: {scene_text}{style_instruction}
 
-The prompt should be:
-- Visual and descriptive
-- Include style (cinematic, realistic, etc.)
-- Include mood and atmosphere
-- Be suitable for AI image generation (DALL-E, Stable Diffusion, etc.)
+The prompt should:
+- Incorporate the visual style description fully into the scene
+- Be visual and descriptive
+- Include all style elements, mood, atmosphere, lighting, and color palette from the visual style
+- Be suitable for AI image generation (DALL-E, Stable Diffusion, Leonardo.ai, etc.)
 
-Return only the prompt, no explanation."""
+Return only the final prompt, no explanation."""
 
     try:
         client = get_openai_client()

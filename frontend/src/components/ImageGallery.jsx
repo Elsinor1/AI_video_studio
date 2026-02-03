@@ -17,7 +17,7 @@ function ImageGallery({ scriptId, onBack, onNext }) {
 
   const loadData = async () => {
     try {
-      const scenesResponse = await axios.get(`${API_BASE}/scripts/${scriptId}/scenes`)
+      const scenesResponse = await axios.get(`${API_BASE}/projects/${scriptId}/scenes`)
       const scenesData = scenesResponse.data
       setScenes(scenesData)
 
