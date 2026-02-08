@@ -64,6 +64,13 @@ def get_scenes_by_project(db: Session, project_id: int):
     return db.query(models.Scene).filter(models.Scene.project_id == project_id).order_by(models.Scene.order).all()
 
 
+def delete_scenes_by_project(db: Session, project_id: int):
+    """Delete all scenes for a project (e.g. before re-segmenting). Cascades to visual_descriptions and images."""
+    for scene in db.query(models.Scene).filter(models.Scene.project_id == project_id).all():
+        db.delete(scene)
+    db.commit()
+
+
 def update_scene(db: Session, scene_id: int, scene: schemas.SceneUpdate):
     db_scene = db.query(models.Scene).filter(models.Scene.id == scene_id).first()
     if not db_scene:
@@ -119,6 +126,114 @@ def delete_visual_style(db: Session, style_id: int):
     return True
 
 
+# Script Prompt CRUD
+def create_script_prompt(db: Session, script_prompt: schemas.ScriptPromptCreate):
+    db_prompt = models.ScriptPrompt(**script_prompt.dict())
+    db.add(db_prompt)
+    db.commit()
+    db.refresh(db_prompt)
+    return db_prompt
+
+
+def get_script_prompt(db: Session, prompt_id: int):
+    return db.query(models.ScriptPrompt).filter(models.ScriptPrompt.id == prompt_id).first()
+
+
+def get_script_prompts(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.ScriptPrompt).order_by(desc(models.ScriptPrompt.created_at)).offset(skip).limit(limit).all()
+
+
+def update_script_prompt(db: Session, prompt_id: int, script_prompt: schemas.ScriptPromptUpdate):
+    db_prompt = db.query(models.ScriptPrompt).filter(models.ScriptPrompt.id == prompt_id).first()
+    if not db_prompt:
+        return None
+    update_data = script_prompt.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_prompt, field, value)
+    db.commit()
+    db.refresh(db_prompt)
+    return db_prompt
+
+
+def delete_script_prompt(db: Session, prompt_id: int):
+    db_prompt = db.query(models.ScriptPrompt).filter(models.ScriptPrompt.id == prompt_id).first()
+    if not db_prompt:
+        return False
+    db.delete(db_prompt)
+    db.commit()
+    return True
+
+
+# Script Iteration CRUD (sliding window: store all, send only last K feedbacks to API)
+def create_script_iteration(db: Session, project_id: int, user_feedback: str, revised_script: str):
+    count = db.query(models.ScriptIteration).filter(models.ScriptIteration.project_id == project_id).count()
+    round_number = count + 1
+    iteration = models.ScriptIteration(
+        project_id=project_id,
+        round_number=round_number,
+        user_feedback=user_feedback,
+        revised_script=revised_script,
+    )
+    db.add(iteration)
+    db.commit()
+    db.refresh(iteration)
+    return iteration
+
+
+def get_last_script_iterations_feedback(db: Session, project_id: int, k: int):
+    """Return the last k iterations' user_feedback only, in chronological order (for sliding window prompt)."""
+    rows = (
+        db.query(models.ScriptIteration.user_feedback)
+        .filter(models.ScriptIteration.project_id == project_id)
+        .order_by(desc(models.ScriptIteration.round_number))
+        .limit(k)
+        .all()
+    )
+    feedbacks = [r[0] for r in reversed(rows)]  # chronological
+    return feedbacks
+
+
+# Scene Style CRUD
+def create_scene_style(db: Session, scene_style: schemas.SceneStyleCreate):
+    db_style = models.SceneStyle(**scene_style.dict())
+    db.add(db_style)
+    db.commit()
+    db.refresh(db_style)
+    return db_style
+
+
+def get_scene_style(db: Session, style_id: int):
+    return db.query(models.SceneStyle).filter(models.SceneStyle.id == style_id).first()
+
+
+def get_scene_styles(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.SceneStyle).order_by(desc(models.SceneStyle.created_at)).offset(skip).limit(limit).all()
+
+
+def update_scene_style(db: Session, style_id: int, scene_style: schemas.SceneStyleUpdate):
+    db_style = db.query(models.SceneStyle).filter(models.SceneStyle.id == style_id).first()
+    if not db_style:
+        return None
+    
+    update_data = scene_style.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_style, field, value)
+    
+    db.commit()
+    db.refresh(db_style)
+    return db_style
+
+
+def delete_scene_style(db: Session, style_id: int):
+    db_style = db.query(models.SceneStyle).filter(models.SceneStyle.id == style_id).first()
+    if not db_style:
+        return False
+    
+    db.delete(db_style)
+    db.commit()
+    return True
+
+
 # Image CRUD
 def create_image(db: Session, image: schemas.ImageCreate):
     db_image = models.Image(**image.dict())
@@ -164,4 +279,81 @@ def get_video(db: Session, video_id: int):
 
 def get_video_by_project(db: Session, project_id: int):
     return db.query(models.Video).filter(models.Video.project_id == project_id).order_by(desc(models.Video.created_at)).first()
+
+
+# Visual Description CRUD
+def create_visual_description(db: Session, visual_description: schemas.VisualDescriptionCreate):
+    db_desc = models.VisualDescription(**visual_description.dict())
+    db.add(db_desc)
+    db.commit()
+    db.refresh(db_desc)
+    return db_desc
+
+
+def get_visual_description(db: Session, desc_id: int):
+    return db.query(models.VisualDescription).filter(models.VisualDescription.id == desc_id).first()
+
+
+def get_visual_descriptions_by_scene(db: Session, scene_id: int):
+    return db.query(models.VisualDescription).filter(models.VisualDescription.scene_id == scene_id).order_by(desc(models.VisualDescription.created_at)).all()
+
+
+def update_scene_current_description(db: Session, scene_id: int, visual_description_id: int):
+    """Set the current visual description for a scene"""
+    scene = db.query(models.Scene).filter(models.Scene.id == scene_id).first()
+    if not scene:
+        return None
+    
+    # Verify the description belongs to this scene
+    desc = db.query(models.VisualDescription).filter(
+        models.VisualDescription.id == visual_description_id,
+        models.VisualDescription.scene_id == scene_id
+    ).first()
+    
+    if not desc:
+        return None
+    
+    scene.current_visual_description_id = visual_description_id
+    scene.visual_description = desc.description  # Keep backward compatibility
+    db.commit()
+    db.refresh(scene)
+    return scene
+
+
+# Image Reference CRUD
+def create_image_reference(db: Session, name: str, image_path: str, description: str = None):
+    ref = models.ImageReference(name=name, image_path=image_path, description=description)
+    db.add(ref)
+    db.commit()
+    db.refresh(ref)
+    return ref
+
+
+def get_image_reference(db: Session, ref_id: int):
+    return db.query(models.ImageReference).filter(models.ImageReference.id == ref_id).first()
+
+
+def get_image_references(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.ImageReference).order_by(desc(models.ImageReference.created_at)).offset(skip).limit(limit).all()
+
+
+def update_image_reference(db: Session, ref_id: int, update: schemas.ImageReferenceUpdate):
+    ref = db.query(models.ImageReference).filter(models.ImageReference.id == ref_id).first()
+    if not ref:
+        return None
+    update_data = update.model_dump(exclude_unset=True) if hasattr(update, 'model_dump') else update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(ref, field, value)
+    db.commit()
+    db.refresh(ref)
+    return ref
+
+
+def delete_image_reference(db: Session, ref_id: int):
+    ref = db.query(models.ImageReference).filter(models.ImageReference.id == ref_id).first()
+    if not ref:
+        return False
+    db.delete(ref)
+    db.commit()
+    return True
 

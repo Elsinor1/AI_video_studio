@@ -5,6 +5,20 @@
 
 echo "Starting AI Video Creator..."
 
+# Use virtual environment Python if it exists (so uvicorn/celery are found)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+if [[ -d ".venv" ]]; then
+    if [[ -f ".venv/Scripts/python" ]]; then
+        # Windows
+        export PATH="$(pwd)/.venv/Scripts:$PATH"
+    elif [[ -f ".venv/bin/python" ]]; then
+        # Linux/Mac
+        export PATH="$(pwd)/.venv/bin:$PATH"
+    fi
+    echo "Using virtual environment Python"
+fi
+
 # Start Redis with Docker (if Docker is available)
 if command -v docker &> /dev/null; then
     echo "Checking Redis container..."
@@ -30,7 +44,7 @@ fi
 
 # Start FastAPI backend
 echo "Starting FastAPI backend..."
-uvicorn backend.main:app --reload --port 8000 &
+python -m uvicorn backend.main:app --reload --port 8000 &
 BACKEND_PID=$!
 
 # Start Celery worker
@@ -56,10 +70,10 @@ fi
 
 if [[ "$IS_WINDOWS" == "true" ]]; then
     echo "Detected Windows - using solo pool (Windows doesn't support prefork)"
-    celery -A backend.celery_worker worker --loglevel=info --pool=solo &
+    python -m celery -A backend.celery_worker worker --loglevel=info --pool=solo &
 else
     echo "Detected Unix-like system - using prefork pool with concurrency=2"
-    celery -A backend.celery_worker worker --loglevel=info --concurrency=2 &
+    python -m celery -A backend.celery_worker worker --loglevel=info --concurrency=2 &
 fi
 CELERY_PID=$!
 

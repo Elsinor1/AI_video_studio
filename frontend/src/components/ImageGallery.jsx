@@ -10,8 +10,20 @@ function ImageGallery({ scriptId, onBack, onNext }) {
 
   useEffect(() => {
     loadData()
-    // Poll for new images
-    const interval = setInterval(loadData, 5000)
+    // Poll for new images, but stop once all scenes have approved images
+    let pollCount = 0
+    const maxPolls = 60 // Stop after 60 polls (5 minutes)
+    
+    const interval = setInterval(async () => {
+      pollCount++
+      const shouldStop = await loadData()
+      
+      // Stop polling if all scenes have approved images or reached max polls
+      if (shouldStop || pollCount >= maxPolls) {
+        clearInterval(interval)
+      }
+    }, 5000)
+    
     return () => clearInterval(interval)
   }, [scriptId])
 
@@ -33,9 +45,18 @@ function ImageGallery({ scriptId, onBack, onNext }) {
       }
       setImages(imagesData)
       setLoading(false)
+      
+      // Return true if all scenes have at least one approved image
+      const allHaveApproved = scenesData.every(scene => {
+        const sceneImages = imagesData[scene.id] || []
+        return sceneImages.some(img => img.status === 'approved')
+      })
+      
+      return allHaveApproved
     } catch (error) {
       console.error('Error loading data:', error)
       setLoading(false)
+      return false
     }
   }
 

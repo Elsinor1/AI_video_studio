@@ -8,6 +8,9 @@ import SceneEditor from './components/SceneEditor'
 import ImageGallery from './components/ImageGallery'
 import VideoViewer from './components/VideoViewer'
 import VisualStylesList from './components/VisualStylesList'
+import SceneStylesList from './components/SceneStylesList'
+import ScriptPromptsList from './components/ScriptPromptsList'
+import ImageReferencesList from './components/ImageReferencesList'
 import './App.css'
 
 const API_BASE = '/api'
@@ -44,6 +47,9 @@ function App() {
         <Route path="/projects/:id/images" element={<ImageGalleryPage />} />
         <Route path="/projects/:id/video" element={<VideoViewerPage />} />
         <Route path="/styles" element={<VisualStylesList />} />
+        <Route path="/scene-styles" element={<SceneStylesList />} />
+        <Route path="/script-prompts" element={<ScriptPromptsList />} />
+        <Route path="/image-references" element={<ImageReferencesList />} />
         </Routes>
       </div>
     </div>

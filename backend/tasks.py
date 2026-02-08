@@ -35,11 +35,24 @@ def segment_project_task(project_id: int):
         if not project:
             return {"error": "Project not found"}
         
+        # Remove any existing scenes so we don't get duplicates (e.g. if task runs twice or user re-approves)
+        crud.delete_scenes_by_project(db=db, project_id=project_id)
+        
         # Segment project's script content
         scenes_data = ai_services.segment_script(project.script_content)
         
+        # Deduplicate by (text, order) in case the AI returns duplicates
+        seen = set()
+        unique_scenes_data = []
+        for s in scenes_data:
+            key = (s.get("text", "").strip(), s.get("order"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_scenes_data.append(s)
+        
         # Create scenes in database
-        for scene_data in scenes_data:
+        for scene_data in unique_scenes_data:
             crud.create_scene(
                 db=db,
                 scene=schemas.SceneCreate(
@@ -49,7 +62,7 @@ def segment_project_task(project_id: int):
                 )
             )
         
-        return {"message": f"Created {len(scenes_data)} scenes", "project_id": project_id}
+        return {"message": f"Created {len(unique_scenes_data)} scenes", "project_id": project_id}
     finally:
         db.close()
 
@@ -88,13 +101,22 @@ def generate_image_task(scene_id: int, visual_style_id: int = None):
             )
         )
         
+        # Optional reference image for Leonardo (from Image References)
+        reference_image_path = None
+        if getattr(scene, 'image_reference_id', None):
+            ref = crud.get_image_reference(db=db, ref_id=scene.image_reference_id)
+            if ref and ref.image_path:
+                reference_image_path = os.path.join("storage", ref.image_path)
+                if not os.path.isfile(reference_image_path):
+                    reference_image_path = None
+        
         # Generate image in project-specific folder
         output_dir = os.path.join("storage", f"project_{project_id}", "images", f"scene_{scene_id}")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"image_{image.id}.png")
         
         try:
-            file_path = ai_services.generate_image_with_leonardo(prompt, output_path)
+            file_path = ai_services.generate_image_with_leonardo(prompt, output_path, reference_image_path=reference_image_path)
             # Store relative path from storage directory
             relative_path = file_path.replace("storage/", "").replace("storage\\", "")
             crud.update_image(db=db, image_id=image.id, file_path=relative_path, status="pending")

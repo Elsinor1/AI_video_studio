@@ -31,6 +31,47 @@ class Project(ProjectBase):
         from_attributes = True
 
 
+class ScriptGenerationRequest(BaseModel):
+    """Request body for AI script generation"""
+    title: Optional[str] = None
+    description: str  # Short description of what the script should be about
+    script_prompt_id: int  # ID of the script prompt to use for style/instructions
+
+
+class ScriptGenerationResponse(BaseModel):
+    script_content: str
+
+
+class ScriptIterateRequest(BaseModel):
+    feedback: str
+
+
+class ScriptIterateResponse(BaseModel):
+    script_content: str
+    round_number: int
+
+
+class ScriptIteration(BaseModel):
+    id: int
+    project_id: int
+    round_number: int
+    user_feedback: str
+    revised_script: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SegmentationPreviewResponse(BaseModel):
+    """Full script with segment boundaries (--- on its own line). Edit and PUT to update scenes."""
+    preview_text: str
+
+
+class SegmentationPreviewUpdate(BaseModel):
+    preview_text: str
+
+
 class SceneBase(BaseModel):
     text: str
     order: int
@@ -42,6 +83,9 @@ class SceneCreate(SceneBase):
 
 class SceneUpdate(BaseModel):
     text: Optional[str] = None
+    visual_description: Optional[str] = None
+    scene_style_id: Optional[int] = None
+    image_reference_id: Optional[int] = None
     order: Optional[int] = None
     status: Optional[str] = None
 
@@ -49,7 +93,77 @@ class SceneUpdate(BaseModel):
 class Scene(SceneBase):
     id: int
     project_id: int
+    visual_description: Optional[str] = None  # Current description (for backward compatibility)
+    current_visual_description_id: Optional[int] = None
+    scene_style_id: Optional[int] = None
+    image_reference_id: Optional[int] = None
     status: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class VisualDescriptionBase(BaseModel):
+    description: str
+    scene_style_id: Optional[int] = None
+
+
+class VisualDescriptionCreate(VisualDescriptionBase):
+    scene_id: int
+
+
+class VisualDescription(VisualDescriptionBase):
+    id: int
+    scene_id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class ScriptPromptBase(BaseModel):
+    name: str
+    script_description: str  # Description/instructions for script generation
+
+
+class ScriptPromptCreate(ScriptPromptBase):
+    pass
+
+
+class ScriptPromptUpdate(BaseModel):
+    name: Optional[str] = None
+    script_description: Optional[str] = None
+
+
+class ScriptPrompt(ScriptPromptBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SceneStyleBase(BaseModel):
+    name: str
+    description: str  # Description of the scene style
+    parameters: Optional[str] = "{}"  # Optional JSON string with additional scene parameters
+
+
+class SceneStyleCreate(SceneStyleBase):
+    pass
+
+
+class SceneStyleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[str] = None
+
+
+class SceneStyle(SceneStyleBase):
+    id: int
     created_at: datetime
     updated_at: Optional[datetime] = None
     
@@ -99,6 +213,31 @@ class Image(ImageBase):
     url: Optional[str] = None
     status: str
     created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class ImageReferenceBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    image_path: str
+
+
+class ImageReferenceCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class ImageReferenceUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ImageReference(ImageReferenceBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

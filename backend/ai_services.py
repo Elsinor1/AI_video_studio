@@ -5,16 +5,113 @@ AI service integrations for script segmentation, image generation, and video cre
 import os
 import json
 from openai import OpenAI
-from typing import List, Dict
+from typing import List, Dict, Optional
 import requests
-
+from dotenv import load_dotenv
+load_dotenv()
 
 # Initialize OpenAI client lazily
 def get_openai_client():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(api_key=api_key)
+    
+    # For OpenAI library v1.x+, initialize with explicit http_client configuration
+    # to avoid any proxy-related issues
+    import httpx
+    
+    # Create httpx client without proxy configuration
+    http_client = httpx.Client(
+        timeout=60.0,
+        # Explicitly don't pass proxies to avoid conflicts
+    )
+    
+    # Initialize OpenAI client with custom http_client
+    client = OpenAI(
+        api_key=api_key,
+        http_client=http_client,
+    )
+    
+    return client
+
+
+def generate_script(title: str, description: str, script_prompt_instructions: str) -> str:
+    """
+    Generate a full script from project title, short description, and script prompt instructions.
+    Returns the generated script text.
+    """
+    prompt = f"""You are a professional scriptwriter. Generate a complete video script based on the following.
+
+Project title: {title or 'Untitled'}
+
+Short description of what the script should be about:
+{description or 'No specific description provided.'}
+
+Style and instructions for the script (tone, structure, format):
+{script_prompt_instructions}
+
+Write a full script that is ready for video production. Use clear scene descriptions and dialogue where appropriate. Output only the script text, no meta-commentary."""
+
+    try:
+        client = get_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+        )
+        return (response.choices[0].message.content or "").strip()
+    except Exception as e:
+        print(f"Error generating script: {e}")
+        raise
+
+
+# Sliding window: only last N feedback texts are sent to the API (no full scripts in history)
+SCRIPT_ITERATION_WINDOW_SIZE = 5
+
+
+def revise_script_with_feedback(
+    current_script: str,
+    previous_feedback_list: List[str],
+    new_feedback: str,
+) -> str:
+    """
+    Revise the script based on new feedback and optional previous feedback (sliding window).
+    Only feedback text is sent as context, not full script history, to keep tokens bounded.
+    """
+    previous_block = ""
+    if previous_feedback_list:
+        previous_block = "Previous feedback (for context):\n" + "\n".join(
+            f"- {fb}" for fb in previous_feedback_list
+        ) + "\n\n"
+    user_content = f"""Current script:
+
+{current_script}
+
+---
+{previous_block}---
+New feedback to apply: {new_feedback}
+
+Revise the script according to the new feedback. Output only the full revised script, no commentary or explanation."""
+
+    try:
+        client = get_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a script editor. Revise the script based on the user's feedback. Return only the complete revised script text, nothing else.",
+                },
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.5,
+        )
+        return (response.choices[0].message.content or "").strip()
+    except Exception as e:
+        print(f"Error revising script: {e}")
+        raise
 
 
 def segment_script(script_content: str) -> List[Dict[str, str]]:
@@ -23,17 +120,17 @@ def segment_script(script_content: str) -> List[Dict[str, str]]:
     Returns list of scenes with text and order
     """
     prompt = f"""Split the following script into distinct video scenes. 
-Each scene should be a self-contained visual segment that can be represented by a single image.
+    Each scene should be a self-contained visual segment that can be represented by a single image.
 
-Script:
-{script_content}
+    Script:
+    {script_content}
 
-Return a JSON array of scenes, each with:
-- "text": the scene description/dialogue
-- "order": the scene number (starting from 1)
+    Return a JSON array of scenes, each with:
+    - "text": the scene description/dialogue
+    - "order": the scene number (starting from 1)
 
-Format: [{{"text": "...", "order": 1}}, {{"text": "...", "order": 2}}, ...]
-"""
+    Format: [{{"text": "...", "order": 1}}, {{"text": "...", "order": 2}}, ...]
+    """
 
     try:
         client = get_openai_client()
@@ -50,19 +147,134 @@ Format: [{{"text": "...", "order": 1}}, {{"text": "...", "order": 2}}, ...]
         )
 
         content = response.choices[0].message.content.strip()
+        
         # Remove markdown code blocks if present
         if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-
+            parts = content.split("```")
+            # Find the JSON part (usually between ```json and ```)
+            for i, part in enumerate(parts):
+                if part.strip().startswith("json"):
+                    content = part[4:].strip()
+                    break
+                elif part.strip() and not part.strip().startswith("json"):
+                    # If it's not marked as json but looks like JSON, use it
+                    if part.strip().startswith("["):
+                        content = part.strip()
+                        break
+            else:
+                # If no JSON found, try the last non-empty part
+                content = parts[-1].strip() if parts else content
+        
+        # Try to find JSON array in the content
+        if not content.startswith("["):
+            # Look for JSON array in the content
+            import re
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(0)
+        
+        # Validate content is not empty
+        if not content:
+            raise ValueError("Empty response from OpenAI")
+        
         scenes = json.loads(content)
+        
+        # Validate scenes is a list
+        if not isinstance(scenes, list):
+            raise ValueError(f"Expected list, got {type(scenes)}")
+        
         return scenes
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON from OpenAI response: {e}")
+        print(f"Response content: {content[:500] if 'content' in locals() else 'N/A'}")
+        # Fallback: split by paragraphs
+        paragraphs = [p.strip() for p in script_content.split("\n\n") if p.strip()]
+        return [{"text": p, "order": i + 1} for i, p in enumerate(paragraphs)]
     except Exception as e:
         print(f"Error segmenting script: {e}")
         # Fallback: split by paragraphs
         paragraphs = [p.strip() for p in script_content.split("\n\n") if p.strip()]
         return [{"text": p, "order": i + 1} for i, p in enumerate(paragraphs)]
+
+
+def generate_visual_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None) -> str:
+    """
+    Generate a detailed visual description of a scene based on its text and optional scene style.
+    Returns a description like "main character is looking down and weeping"
+    """
+    style_instruction = ""
+    
+    # Add scene style description if provided
+    if scene_style_description:
+        style_instruction = f"\n\nScene Style:\n{scene_style_description}"
+    elif scene_style_params:
+        # Fallback to parameters if description not available
+        try:
+            import json
+            params = json.loads(scene_style_params)
+            style_parts = []
+            if params.get("style"):
+                style_parts.append(f"Style: {params['style']}")
+            if params.get("mood"):
+                style_parts.append(f"Mood: {params['mood']}")
+            if params.get("camera_angle"):
+                style_parts.append(f"Camera angle: {params['camera_angle']}")
+            if params.get("lighting"):
+                style_parts.append(f"Lighting: {params['lighting']}")
+            if params.get("additional_notes"):
+                style_parts.append(f"Additional notes: {params['additional_notes']}")
+            
+            if style_parts:
+                style_instruction = "\n\nScene Style Parameters:\n" + "\n".join(style_parts)
+        except:
+            # If JSON parsing fails, use params as-is
+            style_instruction = f"\n\nScene Style: {scene_style_params}"
+    
+    prompt = f"""Analyze the following scene text and generate a detailed, natural visual description of what should be shown.
+
+    Scene Text:
+    {scene_text}
+    {style_instruction if style_instruction else ''}
+
+    Generate a vivid, flowing visual description written structured with labels. The description should include:
+
+    - Who is in the scene and what they're doing (characters, their actions, expressions, emotions)
+    - The setting and environment (where the scene takes place, key objects, atmosphere)
+    - Visual composition (camera angle, framing, perspective - but describe it naturally)
+    - Lighting and mood (how the scene is lit, the emotional tone)
+    - Key visual elements that should be emphasized
+
+
+    Return only the visual description, no explanation or additional text. Keep it focused and cinematic.
+    Example of well formatted output:
+
+    Characters: Main character and subtle environmental influence,  shadow of another person or gentle hint of characters boss present
+    Scene description: The main character sits hunched over a cluttered desk in a dimly lit tech lab, his face illuminated by the focused glow of a single desk lamp. Blueprints cover the walls behind him, and equations are scribbled on a chalkboard in the background. His fingers move deftly across a project model, his expression showing deep concentration mixed with occasional flashes of excitement. Tears of both frustration and joy well up in his eyes, which he quickly wipes away. a mix of struggle and breakthrough, with long shadows cast by the focused lighting creating a cinematic, emotional atmosphere
+    Surrounding: Workplace, desk or office environment 
+    Main emotion: Calm, attentiveness The atmosphere: Warm and contemplative, melancholic yet gentle
+    Lighting and mood: Low-key, cinematic, soft shadows, gentle falloff.
+    camera angle/perspective: Medium shot
+    """
+
+    try:
+        client = get_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a visual director. Generate concise, vivid visual descriptions for video scenes.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+        )
+
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error generating visual description: {e}")
+        # Fallback: return a simple description
+        return f"Visual scene based on: {scene_text[:100]}..."
 
 
 def generate_image_prompt(scene_text: str, visual_style_description: str = None, visual_style_params: str = None) -> str:
@@ -101,15 +313,15 @@ def generate_image_prompt(scene_text: str, visual_style_description: str = None,
     
     prompt = f"""Create a detailed, cinematic image generation prompt for this video scene:
 
-Scene: {scene_text}{style_instruction}
+    Scene: {scene_text}{style_instruction}
 
-The prompt should:
-- Incorporate the visual style description fully into the scene
-- Be visual and descriptive
-- Include all style elements, mood, atmosphere, lighting, and color palette from the visual style
-- Be suitable for AI image generation (DALL-E, Stable Diffusion, Leonardo.ai, etc.)
+    The prompt should:
+    - Incorporate the visual style description fully into the scene
+    - Be visual and descriptive
+    - Include all style elements, mood, atmosphere, lighting, and color palette from the visual style
+    - Be suitable for AI image generation (DALL-E, Stable Diffusion, Leonardo.ai, etc.)
 
-Return only the final prompt, no explanation."""
+    Return only the final prompt, no explanation."""
 
     try:
         client = get_openai_client()
@@ -132,161 +344,119 @@ Return only the final prompt, no explanation."""
         return f"Cinematic scene: {scene_text}"
 
 
-def generate_image_with_leonardo(prompt: str, output_path: str) -> str:
+def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_path: Optional[str] = None) -> str:
     """
-    Generate image using Leonardo.ai API
-    Returns file path
+    Generate image using Leonardo.ai API.
+    If reference_image_path is provided, uploads it and uses it as image reference for Leonardo.
+    Returns file path to the saved image.
     """
+    import time
     api_key = os.getenv("LEONARDO_API_KEY")
     if not api_key:
         raise ValueError(
             "LEONARDO_API_KEY environment variable not set. Get your API key from https://app.leonardo.ai/settings"
         )
 
-    try:
-        # Leonardo.ai API base URL
-        base_url = "https://cloud.leonardo.ai/api/rest/v1"
+    authorization = "Bearer %s" % api_key
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": authorization,
+    }
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+    image_id = None
+    if reference_image_path and os.path.isfile(reference_image_path):
+        # Upload reference image to Leonardo init-image
+        ext = os.path.splitext(reference_image_path)[1].lower().lstrip(".")
+        if ext == "jpeg":
+            ext = "jpg"
+        init_resp = requests.post(
+            "https://cloud.leonardo.ai/api/rest/v1/init-image",
+            json={"extension": ext or "jpg"},
+            headers=headers,
+            timeout=30,
+        )
+        init_resp.raise_for_status()
+        init_data = init_resp.json()
+        upload_info = init_data.get("uploadInitImage") or init_data.get("upload_init_image", {})
+        fields = json.loads(upload_info.get("fields", "{}"))
+        upload_url = upload_info.get("url", "")
+        image_id = upload_info.get("id", "")
+        with open(reference_image_path, "rb") as f:
+            files = {"file": (os.path.basename(reference_image_path), f)}
+            upload_resp = requests.post(upload_url, data=fields, files=files, timeout=60)
+        print("Leonardo: Reference image uploaded: %s" % upload_resp.status_code)
+
+    # Build v2 generation parameters
+    parameters = {
+        "width": 1024,
+        "height": 1024,
+        "prompt": prompt,
+        "quantity": 1,
+        "prompt_enhance": "OFF",
+    }
+    if image_id:
+        parameters["guidances"] = {
+            "image_reference": [
+                {"image": {"id": image_id, "type": "UPLOADED"}, "strength": "MID"}
+            ]
         }
 
-        # Step 1: Create generation job
-        generation_url = f"{base_url}/generations"
+    payload = {
+        "model": os.getenv("LEONARDO_MODEL_ID", "gemini-2.5-flash-preview-05-20"),
+        "parameters": parameters,
+        "public": False,
+    }
 
-        # Leonardo.ai API payload - adjust modelId based on your subscription
-        model_id = os.getenv(
-            "LEONARDO_MODEL_ID", "6bef9f1b-6297-4702-9b67-0be5ca70c96f"
-        )  # Default: Leonardo Diffusion XL
+    gen_resp = requests.post(
+        "https://cloud.leonardo.ai/api/rest/v2/generations",
+        json=payload,
+        headers=headers,
+        timeout=30,
+    )
+    gen_resp.raise_for_status()
+    gen_data = gen_resp.json()
+    generation_id = (gen_data.get("generate") or {}).get("generationId") or gen_data.get("generationId")
+    if not generation_id:
+        raise ValueError("Leonardo: No generationId in response: %s" % gen_data)
 
-        payload = {
-            "prompt": prompt,
-            "modelId": model_id,
-            "width": 1024,
-            "height": 1024,
-            "num_images": 1,
-            "guidance_scale": 7,
-            "num_inference_steps": 30,
-            "scheduler": "LEONARDO",
-        }
+    # Poll for completion
+    base_url = "https://cloud.leonardo.ai/api/rest/v1"
+    status_url = "%s/generations/%s" % (base_url, generation_id)
+    max_attempts = 60
+    for attempt in range(max_attempts):
+        time.sleep(5)
+        status_resp = requests.get(status_url, headers=headers, timeout=30)
+        status_resp.raise_for_status()
+        status_data = status_resp.json()
+        generated_images = []
+        if "generations_by_pk" in status_data:
+            generated_images = status_data["generations_by_pk"].get("generated_images", [])
+        elif "generated_images" in status_data:
+            generated_images = status_data["generated_images"]
+        elif "generation" in status_data:
+            generated_images = status_data["generation"].get("generated_images", [])
 
-        # Create generation
-        response = requests.post(
-            generation_url, json=payload, headers=headers, timeout=30
-        )
-        response.raise_for_status()
-        generation_data = response.json()
+        if generated_images:
+            first = generated_images[0]
+            image_url = first.get("url") or first.get("imageUrl")
+            if image_url:
+                img_resp = requests.get(image_url, timeout=60)
+                img_resp.raise_for_status()
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, "wb") as f:
+                    f.write(img_resp.content)
+                print("Leonardo: Image saved to %s" % output_path)
+                return output_path
 
-        # Extract generation ID - Leonardo.ai returns it in different possible formats
-        generation_id = None
-        if "sdGenerationJob" in generation_data:
-            generation_id = generation_data["sdGenerationJob"].get("generationId")
-        elif "generationId" in generation_data:
-            generation_id = generation_data["generationId"]
-        elif "id" in generation_data:
-            generation_id = generation_data["id"]
+        status = (status_data.get("generations_by_pk") or {}).get("status") or status_data.get("status")
+        if status and str(status).lower() in ("failed", "error"):
+            err = (status_data.get("generations_by_pk") or {}).get("error") or status_data.get("error", "Unknown error")
+            raise Exception("Leonardo generation failed: %s" % err)
+        if attempt % 6 == 0:
+            print("Leonardo: Waiting for generation... (%ss)" % (attempt * 5))
 
-        if not generation_id:
-            # Try alternative response format
-            if "generation" in generation_data:
-                generation_id = generation_data["generation"].get("id")
-            if not generation_id:
-                print(f"Leonardo.ai response: {json.dumps(generation_data, indent=2)}")
-                raise ValueError(
-                    f"Failed to get generation ID from Leonardo.ai. Response: {generation_data}"
-                )
-
-        # Step 2: Poll for completion (Leonardo.ai is async)
-        import time
-
-        max_attempts = 60  # 5 minutes max (5 seconds * 60 = 300 seconds)
-        attempt = 0
-
-        print(
-            f"Leonardo.ai: Generation started with ID {generation_id}, polling for completion..."
-        )
-
-        while attempt < max_attempts:
-            time.sleep(5)  # Wait 5 seconds between checks
-
-            # Check generation status
-            status_url = f"{base_url}/generations/{generation_id}"
-            status_response = requests.get(status_url, headers=headers, timeout=30)
-            status_response.raise_for_status()
-            status_data = status_response.json()
-
-            # Try different response formats
-            image_url = None
-            generated_images = []
-
-            # Format 1: generations_by_pk.generated_images
-            if "generations_by_pk" in status_data:
-                generated_images = status_data["generations_by_pk"].get(
-                    "generated_images", []
-                )
-            # Format 2: generated_images at root
-            elif "generated_images" in status_data:
-                generated_images = status_data["generated_images"]
-            # Format 3: generation.generated_images
-            elif "generation" in status_data:
-                generated_images = status_data["generation"].get("generated_images", [])
-
-            if generated_images and len(generated_images) > 0:
-                # Get the first image
-                first_image = generated_images[0]
-                image_url = (
-                    first_image.get("url")
-                    or first_image.get("imageUrl")
-                    or first_image.get("url")
-                )
-
-                if image_url:
-                    print(f"Leonardo.ai: Image ready, downloading from {image_url}")
-                    # Download image
-                    img_response = requests.get(image_url, timeout=60)
-                    img_response.raise_for_status()
-
-                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                    with open(output_path, "wb") as f:
-                        f.write(img_response.content)
-
-                    print(f"Leonardo.ai: Image saved to {output_path}")
-                    return output_path
-
-            # Check if generation failed
-            status = status_data.get("generations_by_pk", {}).get(
-                "status"
-            ) or status_data.get("status")
-            if status and status.lower() in ["failed", "error"]:
-                error_msg = status_data.get("generations_by_pk", {}).get(
-                    "error"
-                ) or status_data.get("error", "Unknown error")
-                raise Exception(f"Leonardo.ai generation failed: {error_msg}")
-
-            attempt += 1
-            if attempt % 6 == 0:  # Log every 30 seconds
-                print(
-                    f"Leonardo.ai: Still waiting for generation... ({attempt * 5}s elapsed)"
-                )
-
-        raise TimeoutError(
-            f"Image generation timed out after {max_attempts * 5} seconds. Generation ID: {generation_id}"
-        )
-
-    except requests.exceptions.RequestException as e:
-        error_msg = f"Error calling Leonardo.ai API: {e}"
-        if hasattr(e, "response") and e.response is not None:
-            try:
-                error_detail = e.response.json()
-                error_msg += f"\nResponse: {json.dumps(error_detail, indent=2)}"
-            except:
-                error_msg += f"\nResponse text: {e.response.text}"
-        print(error_msg)
-        raise Exception(error_msg) from e
-    except Exception as e:
-        print(f"Error generating image with Leonardo.ai: {e}")
-        raise
+    raise TimeoutError("Leonardo image generation timed out. Generation ID: %s" % generation_id)
 
 
 def generate_image_with_dalle(prompt: str, output_path: str) -> str:

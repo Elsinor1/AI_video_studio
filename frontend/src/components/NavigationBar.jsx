@@ -26,6 +26,24 @@ function NavigationBar() {
           >
             Visual Styles
           </button>
+          <button
+            className={`navbar-link ${location.pathname === '/scene-styles' ? 'active' : ''}`}
+            onClick={() => navigate('/scene-styles')}
+          >
+            Scene Styles
+          </button>
+          <button
+            className={`navbar-link ${location.pathname === '/script-prompts' ? 'active' : ''}`}
+            onClick={() => navigate('/script-prompts')}
+          >
+            Script Prompts
+          </button>
+          <button
+            className={`navbar-link ${location.pathname === '/image-references' ? 'active' : ''}`}
+            onClick={() => navigate('/image-references')}
+          >
+            Image References
+          </button>
         </div>
       </div>
     </nav>
