@@ -4,13 +4,65 @@
   box-sizing: border-box;
 }
 
+/* Light theme (default) */
+:root,
+[data-theme="light"] {
+  --bg-page: #f5f5f5;
+  --bg-surface: #ffffff;
+  --bg-surface-alt: #fafafa;
+  --bg-hover: #f0f0f0;
+  --text-primary: #1a1a1a;
+  --text-secondary: #333333;
+  --text-muted: #666666;
+  --border: #ddd;
+  --border-light: #eee;
+  --shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --primary: #007bff;
+  --primary-hover: #0056b3;
+  --success: #28a745;
+  --success-hover: #218838;
+  --danger: #dc3545;
+  --danger-hover: #c82333;
+  --secondary: #6c757d;
+  --secondary-hover: #5a6268;
+  --info: #17a2b8;
+  --warning: #ffc107;
+  --warning-text: #000;
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  --bg-page: #121212;
+  --bg-surface: #1e1e1e;
+  --bg-surface-alt: #252525;
+  --bg-hover: #2d2d2d;
+  --text-primary: #e8e8e8;
+  --text-secondary: #d0d0d0;
+  --text-muted: #a0a0a0;
+  --border: #404040;
+  --border-light: #333;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --primary: #4a9eff;
+  --primary-hover: #6bb1ff;
+  --success: #34c759;
+  --success-hover: #5dd879;
+  --danger: #e85555;
+  --danger-hover: #ef7777;
+  --secondary: #6c757d;
+  --secondary-hover: #8a9199;
+  --info: #5ac8fa;
+  --warning: #ffcc00;
+  --warning-text: #1a1a1a;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
 }
 
 code {
@@ -19,8 +71,8 @@ code {
 }
 
 .navbar {
-  background: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow);
   margin-bottom: 20px;
   position: sticky;
   top: 0;
@@ -38,20 +90,21 @@ code {
 
 .navbar-brand h1 {
   margin: 0;
-  color: #333;
+  color: var(--text-secondary);
   font-size: 24px;
 }
 
 .navbar-links {
   display: flex;
   gap: 15px;
+  align-items: center;
 }
 
 .navbar-link {
   padding: 8px 16px;
   border: none;
   background: transparent;
-  color: #666;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 16px;
   border-radius: 4px;
@@ -59,17 +112,22 @@ code {
 }
 
 .navbar-link:hover {
-  background: #f5f5f5;
-  color: #333;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .navbar-link.active {
-  background: #007bff;
+  background: var(--primary);
   color: white;
 }
 
 .navbar-link.active:hover {
-  background: #0056b3;
+  background: var(--primary-hover);
+  color: white;
+}
+
+.navbar-link.theme-toggle {
+  font-size: 14px;
 }
 
 .container {
@@ -79,23 +137,36 @@ code {
 }
 
 .header {
-  background: white;
+  background: var(--bg-surface);
   padding: 20px;
   margin-bottom: 20px;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow);
+  color: var(--text-primary);
 }
 
-.header h1 {
-  color: #333;
+.header h1,
+.header p {
+  color: var(--text-primary);
 }
 
 .card {
-  background: white;
+  background: var(--bg-surface);
   padding: 20px;
   margin-bottom: 20px;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: var(--shadow);
+  color: var(--text-primary);
+}
+
+.card h2,
+.card h3,
+.card h4 {
+  color: var(--text-primary);
+}
+
+.card p {
+  color: var(--text-secondary);
 }
 
 .btn {
@@ -109,39 +180,44 @@ code {
 }
 
 .btn-primary {
-  background-color: #007bff;
+  background-color: var(--primary);
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: #0056b3;
+  background-color: var(--primary-hover);
 }
 
 .btn-success {
-  background-color: #28a745;
+  background-color: var(--success);
   color: white;
 }
 
 .btn-success:hover {
-  background-color: #218838;
+  background-color: var(--success-hover);
 }
 
 .btn-danger {
-  background-color: #dc3545;
+  background-color: var(--danger);
   color: white;
 }
 
 .btn-danger:hover {
-  background-color: #c82333;
+  background-color: var(--danger-hover);
 }
 
 .btn-secondary {
-  background-color: #6c757d;
+  background-color: var(--secondary);
   color: white;
 }
 
 .btn-secondary:hover {
-  background-color: #5a6268;
+  background-color: var(--secondary-hover);
+}
+
+.btn-info {
+  background-color: var(--info);
+  color: white;
 }
 
 .status-badge {
@@ -154,22 +230,22 @@ code {
 }
 
 .status-draft {
-  background-color: #ffc107;
-  color: #000;
+  background-color: var(--warning);
+  color: var(--warning-text);
 }
 
 .status-approved {
-  background-color: #28a745;
+  background-color: var(--success);
   color: white;
 }
 
 .status-pending {
-  background-color: #17a2b8;
+  background-color: var(--info);
   color: white;
 }
 
 .status-rejected {
-  background-color: #dc3545;
+  background-color: var(--danger);
   color: white;
 }
 
@@ -177,26 +253,33 @@ textarea {
   width: 100%;
   min-height: 200px;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-family: inherit;
   font-size: 14px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="email"],
+select {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 14px;
   margin-bottom: 10px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
 }
 
 .scene-item {
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   padding: 15px;
   margin-bottom: 15px;
   border-radius: 4px;
+  background: var(--bg-surface-alt);
 }
 
 .image-gallery {
@@ -207,10 +290,11 @@ input[type="text"] {
 }
 
 .image-item {
-  border: 2px solid #ddd;
+  border: 2px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   padding: 10px;
+  background: var(--bg-surface-alt);
 }
 
 .image-item img {
@@ -220,11 +304,10 @@ input[type="text"] {
 }
 
 .image-item.approved {
-  border-color: #28a745;
+  border-color: var(--success);
 }
 
 .image-item.rejected {
-  border-color: #dc3545;
+  border-color: var(--danger);
   opacity: 0.6;
 }
-

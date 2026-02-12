@@ -3,7 +3,7 @@ import axios from 'axios'
 
 const API_BASE = '/api'
 
-function SceneEditor({ scriptId, onBack, onNext }) {
+function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   const [scenes, setScenes] = useState([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState(null)
@@ -304,7 +304,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
       </div>
 
       {/* Segmentation preview: one big text, --- separates scenes; reposition or add --- then Apply */}
-      <div style={{ marginBottom: '24px', border: '1px solid #ddd', borderRadius: '8px', overflow: 'hidden', background: '#fafafa' }}>
+      <div style={{ marginBottom: '24px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-surface-alt)' }}>
         <button
           type="button"
           onClick={() => setSegmentationPreviewOpen(!segmentationPreviewOpen)}
@@ -313,7 +313,8 @@ function SceneEditor({ scriptId, onBack, onNext }) {
             padding: '12px 16px',
             textAlign: 'left',
             fontWeight: 'bold',
-            background: segmentationPreviewOpen ? '#e8f4f8' : '#f0f0f0',
+            background: segmentationPreviewOpen ? 'var(--info)' : 'var(--bg-hover)',
+            color: segmentationPreviewOpen ? 'white' : 'var(--text-primary)',
             border: 'none',
             cursor: 'pointer',
             display: 'flex',
@@ -322,15 +323,15 @@ function SceneEditor({ scriptId, onBack, onNext }) {
           }}
         >
           Segmentation preview
-          <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#666' }}>
+          <span style={{ fontSize: '14px', fontWeight: 'normal', opacity: 0.9 }}>
             {segmentationPreviewOpen ? '▼' : '▶'}
           </span>
         </button>
         {segmentationPreviewOpen && (
           <div style={{ padding: '16px' }}>
-            <p style={{ fontSize: '13px', color: '#666', marginBottom: '10px' }}>
-              Full script with segment boundaries. Put <code style={{ background: '#eee', padding: '2px 6px', borderRadius: '4px' }}>---</code> on its own line between scenes.
-              Move a line with <code style={{ background: '#eee', padding: '2px 6px', borderRadius: '4px' }}>---</code> to change boundaries; add more <code style={{ background: '#eee', padding: '2px 6px', borderRadius: '4px' }}>---</code> to split into more scenes.
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+              Full script with segment boundaries. Put <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> on its own line between scenes.
+              Move a line with <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> to change boundaries; add more <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> to split into more scenes.
             </p>
             <textarea
               value={segmentationPreview}
@@ -343,9 +344,11 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                 fontSize: '14px',
                 lineHeight: '1.5',
                 padding: '12px',
-                border: '1px solid #ccc',
+                border: '1px solid var(--border)',
                 borderRadius: '4px',
                 resize: 'vertical',
+                background: 'var(--bg-surface)',
+                color: 'var(--text-primary)',
               }}
             />
             <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -378,7 +381,18 @@ function SceneEditor({ scriptId, onBack, onNext }) {
           {scenes.map((scene) => (
             <div key={scene.id} className="scene-item">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <h3>Scene {scene.order}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h3 style={{ margin: 0 }}>Scene {scene.order}</h3>
+                  {onOpenScene && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => onOpenScene(scene.id)}
+                      style={{ fontSize: '13px', padding: '4px 12px' }}
+                    >
+                      Open Scene →
+                    </button>
+                  )}
+                </div>
                 <span className={`status-badge status-${scene.status}`}>
                   {scene.status}
                 </span>
@@ -400,7 +414,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                         <select
                           value={selectedSceneStyles[scene.id] || ''}
                           onChange={(e) => setSelectedSceneStyles({ ...selectedSceneStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd', minWidth: '200px' }}
+                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
                         >
                           <option value="">None (default)</option>
                           {sceneStyles.map((style) => (
@@ -417,7 +431,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                         <select
                           value={selectedStyles[scene.id] || ''}
                           onChange={(e) => setSelectedStyles({ ...selectedStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd', minWidth: '200px' }}
+                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
                         >
                           <option value="">None (default)</option>
                           {visualStyles.map((style) => (
@@ -434,7 +448,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                         <select
                           value={selectedImageRefs[scene.id] || ''}
                           onChange={(e) => setSelectedImageRefs({ ...selectedImageRefs, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd', minWidth: '200px' }}
+                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
                         >
                           <option value="">None</option>
                           {imageReferences.map((ref) => (
@@ -472,19 +486,19 @@ function SceneEditor({ scriptId, onBack, onNext }) {
               ) : (
                 <div>
                   <div style={{ marginBottom: '15px' }}>
-                    <h4 style={{ marginBottom: '8px', fontSize: '14px', fontWeight: 'bold', color: '#666' }}>
+                    <h4 style={{ marginBottom: '8px', fontSize: '14px', fontWeight: 'bold', color: 'var(--text-muted)' }}>
                       Scene Text:
                     </h4>
-                    <p style={{ margin: 0, padding: '10px', background: '#f9f9f9', borderRadius: '4px' }}>
+                    <p style={{ margin: 0, padding: '10px', background: 'var(--bg-surface-alt)', borderRadius: '4px' }}>
                       {scene.text}
                     </p>
                   </div>
 
                   {(scene.visual_description || (visualDescriptions[scene.id] && visualDescriptions[scene.id].length > 0)) && (
-                    <div style={{ marginBottom: '15px', padding: '12px', background: '#e8f4f8', borderRadius: '4px', border: '1px solid #b3d9e6' }}>
+                    <div style={{ marginBottom: '15px', padding: '12px', background: 'var(--bg-surface-alt)', borderRadius: '4px', border: '1px solid var(--info)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#2c5f7d' }}>
+                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: 'var(--text-primary)' }}>
                             Visual Description:
                           </h4>
                           {visualDescriptions[scene.id] && visualDescriptions[scene.id].length > 1 && (
@@ -502,7 +516,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                               >
                                 ←
                               </button>
-                              <span style={{ fontSize: '12px', color: '#666', minWidth: '50px', textAlign: 'center' }}>
+                              <span style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: '50px', textAlign: 'center' }}>
                                 {((currentDescriptionIndex[scene.id] || 0) + 1)} / {visualDescriptions[scene.id].length}
                               </span>
                               <button
@@ -537,11 +551,11 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                           </button>
                         )}
                       </div>
-                      <p style={{ margin: 0, color: '#1a4a5c', fontStyle: 'italic' }}>
+                      <p style={{ margin: 0, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                         {getCurrentDescription(scene.id)?.description || scene.visual_description}
                       </p>
                       {getCurrentDescription(scene.id) && (
-                        <small style={{ display: 'block', color: '#999', marginTop: '8px', fontSize: '11px' }}>
+                        <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '8px', fontSize: '11px' }}>
                           Generated {new Date(getCurrentDescription(scene.id).created_at).toLocaleString()}
                         </small>
                       )}
@@ -550,7 +564,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
 
                   {scene.status !== 'approved' && (
                     <>
-                      <div style={{ marginTop: '10px', marginBottom: '10px', padding: '10px', background: '#f0f8ff', borderRadius: '4px', border: '1px solid #b3d9e6' }}>
+                      <div style={{ marginTop: '10px', marginBottom: '10px', padding: '10px', background: 'var(--bg-surface-alt)', borderRadius: '4px', border: '1px solid var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
                           <label style={{ fontSize: '14px', fontWeight: 'bold' }}>
                             Scene Style (for testing):
@@ -573,7 +587,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                         <select
                           value={selectedSceneStyles[scene.id] || ''}
                           onChange={(e) => handleSceneStyleChange(scene.id, e.target.value)}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd', minWidth: '200px', width: '100%' }}
+                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px', width: '100%' }}
                         >
                           <option value="">None (default)</option>
                           {sceneStyles.map((style) => (
@@ -582,7 +596,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                             </option>
                           ))}
                         </select>
-                        <small style={{ display: 'block', color: '#666', marginTop: '5px' }}>
+                        <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '5px' }}>
                           {scene.visual_description 
                             ? 'Change scene style and click "Regenerate" to test different visual descriptions'
                             : 'Scene style affects visual description generation. Generate a description after selecting a style.'}
@@ -595,7 +609,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                         <select
                           value={selectedStyles[scene.id] || ''}
                           onChange={(e) => setSelectedStyles({ ...selectedStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd', minWidth: '200px' }}
+                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
                         >
                           <option value="">None (default)</option>
                           {visualStyles.map((style) => (
@@ -612,7 +626,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                         <select
                           value={selectedImageRefs[scene.id] || ''}
                           onChange={(e) => handleImageReferenceChange(scene.id, e.target.value)}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd', minWidth: '200px' }}
+                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
                         >
                           <option value="">None</option>
                           {imageReferences.map((ref) => (
@@ -621,7 +635,7 @@ function SceneEditor({ scriptId, onBack, onNext }) {
                             </option>
                           ))}
                         </select>
-                        <small style={{ display: 'block', color: '#666', marginTop: '5px' }}>
+                        <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '5px' }}>
                           Used as reference for Leonardo image generation
                         </small>
                       </div>

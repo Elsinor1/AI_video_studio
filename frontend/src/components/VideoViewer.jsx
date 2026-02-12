@@ -96,7 +96,7 @@ function VideoViewer({ scriptId, onBack }) {
       ) : (
         <div>
           {video.status === 'pending' && (
-            <div style={{ padding: '20px', background: '#fff3cd', borderRadius: '4px', marginBottom: '20px' }}>
+            <div style={{ padding: '20px', background: 'var(--warning)', color: 'var(--warning-text)', borderRadius: '4px', marginBottom: '20px' }}>
               <p>Video is being created. Please wait...</p>
             </div>
           )}
@@ -119,7 +119,7 @@ function VideoViewer({ scriptId, onBack }) {
           )}
 
           {video.status === 'rejected' && (
-            <div style={{ padding: '20px', background: '#f8d7da', borderRadius: '4px' }}>
+            <div style={{ padding: '20px', background: 'var(--danger)', color: 'white', borderRadius: '4px' }}>
               <p>Video creation failed. Please try again.</p>
               <button className="btn btn-primary" onClick={handleCreateVideo}>
                 Retry

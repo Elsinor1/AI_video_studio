@@ -129,7 +129,7 @@ function SceneStylesList() {
       </div>
 
       {showForm && (
-        <div style={{ border: '1px solid #ddd', padding: '20px', borderRadius: '4px', marginBottom: '20px', background: '#f9f9f9' }}>
+        <div style={{ border: '1px solid var(--border)', padding: '20px', borderRadius: '4px', marginBottom: '20px', background: 'var(--bg-surface-alt)' }}>
           <h3>{editingId ? 'Edit Scene Style' : 'New Scene Style'}</h3>
           <input
             type="text"
@@ -159,7 +159,7 @@ function SceneStylesList() {
                 Load Example
               </button>
             </div>
-            <small style={{ color: '#666' }}>
+            <small style={{ color: 'var(--text-muted)' }}>
               Describe the scene style including camera angles, lighting, mood, and visual approach. This will be used when generating visual descriptions for scenes.
             </small>
           </div>
@@ -173,7 +173,7 @@ function SceneStylesList() {
               onChange={(e) => setFormData({ ...formData, parameters: e.target.value })}
               style={{ width: '100%', minHeight: '80px', fontFamily: 'monospace', fontSize: '12px', marginBottom: '5px' }}
             />
-            <small style={{ color: '#666' }}>
+            <small style={{ color: 'var(--text-muted)' }}>
               Optional: JSON format for structured parameters. Leave as {} if not needed.
             </small>
           </div>
@@ -198,12 +198,12 @@ function SceneStylesList() {
                 <div style={{ flex: 1 }}>
                   <h3>{style.name}</h3>
                   {style.description && (
-                    <div style={{ color: '#666', marginTop: '5px', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+                    <div style={{ color: 'var(--text-muted)', marginTop: '5px', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
                       {style.description}
                     </div>
                   )}
                   {style.parameters && formatParameters(style.parameters) !== 'No additional parameters' && (
-                    <p style={{ fontSize: '12px', color: '#999', marginTop: '10px', fontStyle: 'italic' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px', fontStyle: 'italic' }}>
                       Additional parameters: {formatParameters(style.parameters)}
                     </p>
                   )}

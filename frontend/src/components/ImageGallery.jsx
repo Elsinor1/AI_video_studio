@@ -123,10 +123,10 @@ function ImageGallery({ scriptId, onBack, onNext }) {
             return (
               <div key={scene.id} style={{ marginBottom: '30px' }}>
                 <h3>Scene {scene.order}</h3>
-                <p style={{ color: '#666', marginBottom: '15px' }}>{scene.text}</p>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '15px' }}>{scene.text}</p>
 
                 {sceneImages.length === 0 ? (
-                  <p style={{ color: '#999' }}>No images generated yet...</p>
+                  <p style={{ color: 'var(--text-muted)' }}>No images generated yet...</p>
                 ) : (
                   <div className="image-gallery">
                     {sceneImages.map((image) => {
@@ -142,12 +142,12 @@ function ImageGallery({ scriptId, onBack, onNext }) {
                           {imageUrl ? (
                             <img src={imageUrl} alt={`Scene ${scene.order}`} />
                           ) : (
-                            <div style={{ padding: '40px', textAlign: 'center', background: '#f0f0f0' }}>
+                            <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-hover)' }}>
                               Image loading...
                             </div>
                           )}
                           <div style={{ marginTop: '10px' }}>
-                            <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+                            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
                               {image.prompt}
                             </p>
                             <span className={`status-badge status-${image.status}`}>

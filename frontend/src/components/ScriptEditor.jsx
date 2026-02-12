@@ -232,9 +232,9 @@ function ScriptEditor({ script, onSave, onApprove, onBack, onNext, onDelete }) {
       />
 
       {script && content.trim() && (
-        <div style={{ marginTop: '20px', padding: '16px', border: '1px solid #ddd', borderRadius: '4px', background: '#f9f9f9' }}>
+        <div style={{ marginTop: '20px', padding: '16px', border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--bg-surface-alt)' }}>
           <h3 style={{ marginTop: 0 }}>Iterate on script</h3>
-          <p style={{ fontSize: '13px', color: '#666', marginBottom: '10px' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>
             Give feedback to revise the script. Only the last 5 feedback rounds are sent as context (sliding window).
           </p>
           <textarea
@@ -252,7 +252,7 @@ function ScriptEditor({ script, onSave, onApprove, onBack, onNext, onDelete }) {
             {iterating ? 'Revising...' : 'Revise script'}
           </button>
           {lastRound != null && (
-            <span style={{ marginLeft: '12px', fontSize: '13px', color: '#666' }}>
+            <span style={{ marginLeft: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
               Last revision: round {lastRound}
             </span>
           )}

@@ -5,6 +5,7 @@ import NavigationBar from './components/NavigationBar'
 import ScriptList from './components/ScriptList'
 import ScriptEditor from './components/ScriptEditor'
 import SceneEditor from './components/SceneEditor'
+import SceneDetail from './components/SceneDetail'
 import ImageGallery from './components/ImageGallery'
 import VideoViewer from './components/VideoViewer'
 import VisualStylesList from './components/VisualStylesList'
@@ -15,8 +16,26 @@ import './App.css'
 
 const API_BASE = '/api'
 
+const THEME_KEY = 'ai-video-creator-theme'
+
 function App() {
   const [projects, setProjects] = useState([])
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_KEY) || 'light'
+    } catch {
+      return 'light'
+    }
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch (_) {}
+  }, [theme])
+
+  const toggleTheme = () => setTheme(t => (t === 'light' ? 'dark' : 'light'))
 
   useEffect(() => {
     loadProjects()
@@ -33,7 +52,7 @@ function App() {
 
   return (
     <div>
-      <NavigationBar />
+      <NavigationBar theme={theme} onToggleTheme={toggleTheme} />
       <div className="container">
         <div className="header">
           <p>Workflow: Project → Script → Scenes → Images → Video</p>
@@ -44,6 +63,7 @@ function App() {
         <Route path="/projects/new" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
         <Route path="/projects/:id" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
         <Route path="/projects/:id/scenes" element={<SceneEditorPage />} />
+        <Route path="/projects/:id/scenes/:sceneId" element={<SceneDetailPage />} />
         <Route path="/projects/:id/images" element={<ImageGalleryPage />} />
         <Route path="/projects/:id/video" element={<VideoViewerPage />} />
         <Route path="/styles" element={<VisualStylesList />} />
@@ -152,6 +172,41 @@ function SceneEditorPage() {
       scriptId={parseInt(id)}
       onBack={() => navigate(`/projects/${id}`)}
       onNext={() => navigate(`/projects/${id}/images`)}
+      onOpenScene={(sceneId) => navigate(`/projects/${id}/scenes/${sceneId}`)}
+    />
+  )
+}
+
+function SceneDetailPage() {
+  const { id, sceneId } = useParams()
+  const navigate = useNavigate()
+  const [scenes, setScenes] = useState([])
+
+  useEffect(() => {
+    const loadScenes = async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/projects/${id}/scenes`)
+        setScenes(response.data)
+      } catch {
+        setScenes([])
+      }
+    }
+    if (id) loadScenes()
+  }, [id])
+
+  const sceneIndex = scenes.findIndex(s => s.id === parseInt(sceneId))
+  const nextScene = sceneIndex >= 0 && sceneIndex < scenes.length - 1 ? scenes[sceneIndex + 1] : null
+  const prevScene = sceneIndex > 0 ? scenes[sceneIndex - 1] : null
+
+  return (
+    <SceneDetail
+      scriptId={parseInt(id)}
+      sceneId={parseInt(sceneId)}
+      onBack={() => navigate(`/projects/${id}/scenes`)}
+      onNextScene={nextScene ? () => navigate(`/projects/${id}/scenes/${nextScene.id}`) : undefined}
+      onPrevScene={prevScene ? () => navigate(`/projects/${id}/scenes/${prevScene.id}`) : undefined}
+      hasNextScene={!!nextScene}
+      hasPrevScene={!!prevScene}
     />
   )
 }

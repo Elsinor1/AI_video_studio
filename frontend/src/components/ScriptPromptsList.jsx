@@ -97,7 +97,7 @@ function ScriptPromptsList() {
       </div>
 
       {showForm && (
-        <div style={{ border: '1px solid #ddd', padding: '20px', borderRadius: '4px', marginBottom: '20px', background: '#f9f9f9' }}>
+        <div style={{ border: '1px solid var(--border)', padding: '20px', borderRadius: '4px', marginBottom: '20px', background: 'var(--bg-surface-alt)' }}>
           <h3>{editingId ? 'Edit Script Prompt' : 'New Script Prompt'}</h3>
           <input
             type="text"
@@ -117,7 +117,7 @@ function ScriptPromptsList() {
               style={{ width: '100%', minHeight: '200px', marginBottom: '5px' }}
               required
             />
-            <small style={{ color: '#666' }}>
+            <small style={{ color: 'var(--text-muted)' }}>
               Describe the tone, structure, or style you want when generating scripts. This will be used as context for script creation.
             </small>
           </div>
@@ -142,7 +142,7 @@ function ScriptPromptsList() {
                 <div style={{ flex: 1 }}>
                   <h3>{prompt.name}</h3>
                   {prompt.script_description && (
-                    <div style={{ color: '#666', marginTop: '5px', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+                    <div style={{ color: 'var(--text-muted)', marginTop: '5px', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
                       {prompt.script_description}
                     </div>
                   )}

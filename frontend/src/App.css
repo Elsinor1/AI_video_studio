@@ -1,2 +1,4 @@
-/* Additional app-specific styles */
-
+/* Theme-aware utilities (use with data-theme on html) */
+.bg-alt { background: var(--bg-surface-alt) !important; }
+.text-muted { color: var(--text-muted) !important; }
+.border-default { border-color: var(--border) !important; }

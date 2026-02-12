@@ -36,7 +36,7 @@ function ScriptList({ scripts, onSelectScript, onCreateScript }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3>{script.title || `Project #${script.id}`}</h3>
-                  <p style={{ color: '#666', marginTop: '5px' }}>
+                  <p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>
                     {script.script_content.substring(0, 150)}...
                   </p>
                 </div>
@@ -44,7 +44,7 @@ function ScriptList({ scripts, onSelectScript, onCreateScript }) {
                   {script.status}
                 </span>
               </div>
-              <div style={{ marginTop: '10px', fontSize: '12px', color: '#999' }}>
+              <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
                 Created: {new Date(script.created_at).toLocaleDateString()}
               </div>
             </div>

@@ -117,7 +117,7 @@ function ImageReferencesList() {
       </div>
 
       {showForm && (
-        <div style={{ border: '1px solid #ddd', padding: '20px', borderRadius: '4px', marginBottom: '20px', background: '#f9f9f9' }}>
+        <div style={{ border: '1px solid var(--border)', padding: '20px', borderRadius: '4px', marginBottom: '20px', background: 'var(--bg-surface-alt)' }}>
           <h3>{editingId ? 'Edit Image Reference' : 'New Image Reference'}</h3>
           <div style={{ marginBottom: '10px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
@@ -153,7 +153,7 @@ function ImageReferencesList() {
                 onChange={handleFileChange}
                 style={{ display: 'block' }}
               />
-              <small style={{ color: '#666' }}>Select an image from your computer to use as reference.</small>
+              <small style={{ color: 'var(--text-muted)' }}>Select an image from your computer to use as reference.</small>
             </div>
           )}
           <div>
@@ -178,14 +178,14 @@ function ImageReferencesList() {
                   <img
                     src={getImageUrl(ref)}
                     alt={ref.name}
-                    style={{ maxWidth: '200px', maxHeight: '200px', objectFit: 'contain', borderRadius: '4px', border: '1px solid #ddd' }}
+                    style={{ maxWidth: '200px', maxHeight: '200px', objectFit: 'contain', borderRadius: '4px', border: '1px solid var(--border)' }}
                   />
                 )}
               </div>
               <div style={{ flex: 1, minWidth: '200px' }}>
                 <h3>{ref.name}</h3>
                 {ref.description && (
-                  <p style={{ color: '#666', marginTop: '5px', whiteSpace: 'pre-wrap' }}>{ref.description}</p>
+                  <p style={{ color: 'var(--text-muted)', marginTop: '5px', whiteSpace: 'pre-wrap' }}>{ref.description}</p>
                 )}
                 <div style={{ marginTop: '10px' }}>
                   <button className="btn btn-secondary" onClick={() => handleEdit(ref)} style={{ marginRight: '10px' }}>

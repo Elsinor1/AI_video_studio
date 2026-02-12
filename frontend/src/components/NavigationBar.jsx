@@ -1,7 +1,7 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
-function NavigationBar() {
+function NavigationBar({ theme = 'light', onToggleTheme }) {
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -14,6 +14,15 @@ function NavigationBar() {
           <h1>🎬 AI Video Creator</h1>
         </div>
         <div className="navbar-links">
+          <button
+            type="button"
+            className="navbar-link theme-toggle"
+            onClick={onToggleTheme}
+            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            aria-label={theme === 'light' ? 'Dark mode' : 'Light mode'}
+          >
+            {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
+          </button>
           <button
             className={`navbar-link ${isHomePage ? 'active' : ''}`}
             onClick={() => navigate('/')}
