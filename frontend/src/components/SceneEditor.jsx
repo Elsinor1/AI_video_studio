@@ -15,6 +15,9 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   const [selectedImageRefs, setSelectedImageRefs] = useState({}) // sceneId -> imageReferenceId
   const [imageReferences, setImageReferences] = useState([])
   const [generatingDescriptions, setGeneratingDescriptions] = useState({}) // sceneId -> true/false
+  const [continueFromPreviousScene, setContinueFromPreviousScene] = useState(() => {
+    try { return localStorage.getItem('continuedScene') === 'true' } catch { return false }
+  })
   const [visualDescriptions, setVisualDescriptions] = useState({}) // sceneId -> array of descriptions
   const [currentDescriptionIndex, setCurrentDescriptionIndex] = useState({}) // sceneId -> current index
   const [segmentationPreview, setSegmentationPreview] = useState('')
@@ -58,11 +61,9 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
     setSelectedSceneStyles(prev => ({ ...prev, ...initialSceneStyles }))
     setSelectedImageRefs(prev => ({ ...prev, ...initialImageRefs }))
     setCurrentDescriptionIndex(prev => {
-      const next = { ...prev }
+      const next = {}
       scenes.forEach(scene => {
-        if (scene.id && next[scene.id] === undefined) {
-          next[scene.id] = 0
-        }
+        if (scene.id) next[scene.id] = prev[scene.id]
       })
       return next
     })
@@ -91,13 +92,15 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
     try {
       const response = await axios.get(`${API_BASE}/scenes/${sceneId}/visual-descriptions`)
       setVisualDescriptions(prev => ({ ...prev, [sceneId]: response.data }))
-      // If we have descriptions and no current index set, set to 0
-      if (response.data.length > 0 && !currentDescriptionIndex[sceneId] && currentDescriptionIndex[sceneId] !== 0) {
-        setCurrentDescriptionIndex(prev => ({ ...prev, [sceneId]: 0 }))
+      // If we have descriptions and no current index set, default to newest (last in list)
+      if (response.data.length > 0 && currentDescriptionIndex[sceneId] === undefined) {
+        setCurrentDescriptionIndex(prev => ({ ...prev, [sceneId]: response.data.length - 1 }))
       }
+      return response.data
     } catch (error) {
       console.error('Error loading scene descriptions:', error)
       setVisualDescriptions(prev => ({ ...prev, [sceneId]: [] }))
+      return []
     }
   }
 
@@ -229,12 +232,14 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   const handleGenerateVisualDescription = async (sceneId) => {
     try {
       setGeneratingDescriptions({ ...generatingDescriptions, [sceneId]: true })
-      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-visual-description`)
+      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-visual-description`, null, {
+        params: continueFromPreviousScene ? { continue_from_previous_scene: true } : {}
+      })
       // Reload scenes and visual descriptions
       await loadScenes()
-      await loadVisualDescriptions(sceneId)
-      // Set to the newest description (index 0)
-      setCurrentDescriptionIndex(prev => ({ ...prev, [sceneId]: 0 }))
+      const descriptions = await loadVisualDescriptions(sceneId)
+      // Set to the newest description (last in list)
+      if (descriptions?.length) setCurrentDescriptionIndex(prev => ({ ...prev, [sceneId]: descriptions.length - 1 }))
     } catch (error) {
       console.error('Error generating visual description:', error)
       alert('Error generating scene description: ' + (error.response?.data?.detail || error.message))
@@ -250,12 +255,12 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
     const currentIndex = currentDescriptionIndex[sceneId] || 0
     let newIndex = currentIndex
     
-    // Descriptions are sorted newest first (index 0 = newest)
-    // "next" goes to newer (lower index), "prev" goes to older (higher index)
-    if (direction === 'next' && currentIndex > 0) {
-      newIndex = currentIndex - 1  // Go to newer (lower index)
-    } else if (direction === 'prev' && currentIndex < descriptions.length - 1) {
-      newIndex = currentIndex + 1  // Go to older (higher index)
+    // Descriptions are sorted oldest first (index 0 = 1/5, highest = newest)
+    // "prev" (←) goes to older (lower index), "next" (→) goes to newer (higher index)
+    if (direction === 'prev' && currentIndex > 0) {
+      newIndex = currentIndex - 1  // ← go to older
+    } else if (direction === 'next' && currentIndex < descriptions.length - 1) {
+      newIndex = currentIndex + 1  // → go to newer
     } else {
       return // Can't navigate further
     }
@@ -292,8 +297,14 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
       // Get selected visual style for this scene
       const visualStyleId = selectedStyles[sceneId] || null
       
-      // Trigger image generation
-      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-image`, null, {
+      // Trigger image generation - use currently displayed description for this scene
+      const currentDesc = getCurrentDescription(sceneId)
+      const sceneDesc = currentDesc?.description || (scenes.find(s => s.id === sceneId)?.visual_description)
+      const body = {
+        ...(sceneDesc ? { scene_description: sceneDesc } : {}),
+        continue_from_previous_scene: continueFromPreviousScene
+      }
+      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-image`, body, {
         params: visualStyleId ? { visual_style_id: visualStyleId } : {}
       })
       loadScenes()
@@ -460,6 +471,18 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
                       </select>
                     </div>
                     <button
+                      type="button"
+                      className={continueFromPreviousScene ? 'btn btn-info' : 'btn btn-secondary'}
+                      onClick={() => {
+                        const next = !continueFromPreviousScene
+                        setContinueFromPreviousScene(next)
+                        try { localStorage.setItem('continuedScene', next ? 'true' : 'false') } catch {}
+                      }}
+                      title="Use previous scene description as context for continuity"
+                    >
+                      {continueFromPreviousScene ? '✓ ' : ''}Continued scene
+                    </button>
+                    <button
                       className="btn btn-info"
                       onClick={() => handleGenerateVisualDescription(scene.id)}
                       disabled={generatingDescriptions[scene.id]}
@@ -497,9 +520,9 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
                     </span>
                     {visualDescriptions[scene.id]?.length > 1 && (
                       <div style={{ display: 'flex', gap: '4px' }}>
-                        <button className="btn btn-secondary" onClick={() => handleNavigateDescription(scene.id, 'prev')} disabled={(currentDescriptionIndex[scene.id] || 0) >= visualDescriptions[scene.id].length - 1}>←</button>
+                        <button className="btn btn-secondary" onClick={() => handleNavigateDescription(scene.id, 'prev')} disabled={(currentDescriptionIndex[scene.id] || 0) <= 0}>←</button>
                         <span style={{ minWidth: '40px', textAlign: 'center', fontSize: '14px' }}>{(currentDescriptionIndex[scene.id] || 0) + 1}/{visualDescriptions[scene.id].length}</span>
-                        <button className="btn btn-secondary" onClick={() => handleNavigateDescription(scene.id, 'next')} disabled={(currentDescriptionIndex[scene.id] || 0) <= 0}>→</button>
+                        <button className="btn btn-secondary" onClick={() => handleNavigateDescription(scene.id, 'next')} disabled={(currentDescriptionIndex[scene.id] || 0) >= visualDescriptions[scene.id].length - 1}>→</button>
                       </div>
                     )}
                   </div>

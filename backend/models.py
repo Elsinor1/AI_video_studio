@@ -91,6 +91,7 @@ class Scene(Base):
     current_visual_description_id = Column(Integer, ForeignKey("visual_descriptions.id"), nullable=True)  # Currently selected description
     scene_style_id = Column(Integer, ForeignKey("scene_styles.id"), nullable=True)
     image_reference_id = Column(Integer, ForeignKey("image_references.id"), nullable=True)  # Optional reference image for Leonardo
+    approved_image_id = Column(Integer, ForeignKey("images.id"), nullable=True)  # User-approved image for this scene (used as ref when continuing)
     order = Column(Integer, nullable=False)
     status = Column(String, default=Status.PENDING.value)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -99,8 +100,9 @@ class Scene(Base):
     project = relationship("Project", back_populates="scenes")
     scene_style = relationship("SceneStyle", back_populates="scenes")
     image_reference = relationship("ImageReference")
-    images = relationship("Image", back_populates="scene", cascade="all, delete-orphan")
-    visual_descriptions = relationship("VisualDescription", back_populates="scene", foreign_keys="VisualDescription.scene_id", cascade="all, delete-orphan", order_by="desc(VisualDescription.created_at)")
+    images = relationship("Image", back_populates="scene", foreign_keys="Image.scene_id", cascade="all, delete-orphan")
+    approved_image = relationship("Image", foreign_keys=[approved_image_id])
+    visual_descriptions = relationship("VisualDescription", back_populates="scene", foreign_keys="VisualDescription.scene_id", cascade="all, delete-orphan", order_by="VisualDescription.created_at")
     current_visual_description = relationship("VisualDescription", foreign_keys=[current_visual_description_id], post_update=True, remote_side="VisualDescription.id")
 
 
@@ -129,7 +131,7 @@ class Image(Base):
     status = Column(String, default=Status.PENDING.value)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    scene = relationship("Scene", back_populates="images")
+    scene = relationship("Scene", back_populates="images", foreign_keys=[scene_id])
     visual_style = relationship("VisualStyle", back_populates="images")
 
 

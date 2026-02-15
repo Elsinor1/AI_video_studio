@@ -68,16 +68,19 @@ def segment_project_task(project_id: int):
 
 
 @celery_app.task
-def generate_image_task(scene_id: int, visual_style_id: int = None, model_id: str = None):
+def generate_image_task(scene_id: int, visual_style_id: int = None, model_id: str = None, scene_description: str = None, continue_from_previous_scene: bool = False):
     """Generate image for a scene with optional visual style and model selection"""
+    print(f"[WORKFLOW] 11. Task: started scene_id={scene_id} visual_style_id={visual_style_id} model_id={model_id} scene_description={'present' if scene_description else 'None'} (len={len(scene_description or '')})")
     db = SessionLocal()
     try:
         scene = crud.get_scene(db=db, scene_id=scene_id)
         if not scene:
+            print(f"[WORKFLOW] Task ERROR: Scene not found")
             return {"error": "Scene not found"}
         
         # Get project_id from scene
         project_id = scene.project_id
+        print(f"[WORKFLOW] 12. Task: scene loaded project_id={project_id} scene.visual_description len={len(scene.visual_description or '')} scene.text len={len(scene.text or '')}")
         
         # Get visual style description and parameters if provided
         visual_style_description = None
@@ -87,9 +90,13 @@ def generate_image_task(scene_id: int, visual_style_id: int = None, model_id: st
             if visual_style:
                 visual_style_description = visual_style.description
                 visual_style_params = visual_style.parameters
+        print(f"[WORKFLOW] 13. Task: visual_style_description={visual_style_description is not None} visual_style_params={visual_style_params is not None}")
         
-        # Generate image prompt with visual style
-        prompt = ai_services.generate_image_prompt(scene.text, visual_style_description, visual_style_params)
+        # Generate image prompt: use provided scene_description (currently displayed) or fall back to scene's current
+        desc = scene_description or scene.visual_description or scene.text
+        print(f"[WORKFLOW] 14. Task: desc source={'scene_description param' if scene_description else 'scene.visual_description' if scene.visual_description else 'scene.text'} len={len(desc or '')}")
+        prompt = ai_services.generate_image_prompt(desc, visual_style_description, visual_style_params)
+        print(f"[WORKFLOW] 15. Task: prompt built len={len(prompt)}")
         
         # Create image record
         image = crud.create_image(
@@ -101,9 +108,18 @@ def generate_image_task(scene_id: int, visual_style_id: int = None, model_id: st
             )
         )
         
-        # Optional reference image for Leonardo (from Image References)
+        # Reference image: when continue_from_previous_scene, use previous scene's approved image; else use Ref dropdown (Image References)
         reference_image_path = None
-        if getattr(scene, 'image_reference_id', None):
+        if continue_from_previous_scene:
+            scenes = crud.get_scenes_by_project(db=db, project_id=project_id)
+            prev_scene = next((s for s in scenes if s.order == scene.order - 1), None)
+            if prev_scene and getattr(prev_scene, "approved_image_id", None):
+                approved_img = crud.get_image(db=db, image_id=prev_scene.approved_image_id)
+                if approved_img and approved_img.file_path:
+                    reference_image_path = os.path.join("storage", approved_img.file_path.replace("\\", "/"))
+                    if not os.path.isfile(reference_image_path):
+                        reference_image_path = None
+        if not reference_image_path and getattr(scene, 'image_reference_id', None):
             ref = crud.get_image_reference(db=db, ref_id=scene.image_reference_id)
             if ref and ref.image_path:
                 reference_image_path = os.path.join("storage", ref.image_path)
@@ -116,11 +132,14 @@ def generate_image_task(scene_id: int, visual_style_id: int = None, model_id: st
         output_path = os.path.join(output_dir, f"image_{image.id}.png")
         
         try:
+            print(f"[WORKFLOW] 16. Task: calling generate_image_with_leonardo output_path={output_path}")
             file_path = ai_services.generate_image_with_leonardo(prompt, output_path, reference_image_path=reference_image_path, model_id=model_id)
             # Store relative path from storage directory
             relative_path = file_path.replace("storage/", "").replace("storage\\", "")
             crud.update_image(db=db, image_id=image.id, file_path=relative_path, status="pending")
+            print(f"[WORKFLOW] 17. Task: SUCCESS image_id={image.id} file_path={relative_path}")
         except Exception as e:
+            print(f"[WORKFLOW] Task ERROR: {e}")
             crud.update_image(db=db, image_id=image.id, status="rejected")
             return {"error": str(e)}
         

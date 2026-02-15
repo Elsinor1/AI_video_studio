@@ -197,12 +197,22 @@ def segment_script(script_content: str) -> List[Dict[str, str]]:
         return [{"text": p, "order": i + 1} for i, p in enumerate(paragraphs)]
 
 
-def generate_scene_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None) -> str:
+def generate_scene_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None, previous_scene_description: str = None) -> str:
     """
     Generate a detailed scene description of a scene based on its text and optional scene style.
     Returns a description like "main character is looking down and weeping"
     """
     style_instruction = ""
+    
+    # Add previous scene description as continuity context if provided
+    previous_instruction = ""
+    if previous_scene_description:
+        previous_instruction = f"""
+
+Previous scene description (the new scene should visually follow up on this):
+{previous_scene_description}
+
+Use the previous scene description as context. The new scene should feel like a natural continuation—maintain visual consistency in characters, setting, lighting, and style where appropriate."""
     
     # Add scene style description if provided
     if scene_style_description:
@@ -230,9 +240,10 @@ def generate_scene_description(scene_text: str, scene_style_description: str = N
             # If JSON parsing fails, use params as-is
             style_instruction = f"\n\nScene Style: {scene_style_params}"
     
-    prompt = f"""Analyze the following scene text and generate a detailed, natural scene description of what should be shown.
+    prompt = f"""
+    {previous_instruction}
 
-    Scene Text:
+    New scene text:
     {scene_text}
     {style_instruction if style_instruction else ''}
 
@@ -252,7 +263,7 @@ def generate_scene_description(scene_text: str, scene_style_description: str = N
     - Scene description: The main character sits hunched over a cluttered desk in a dimly lit tech lab, his face illuminated by the focused glow of a single desk lamp. Blueprints cover the walls behind him, and equations are scribbled on a chalkboard in the background. His fingers move deftly across a project model, his expression showing deep concentration mixed with occasional flashes of excitement. Tears of both frustration and joy well up in his eyes, which he quickly wipes away. a mix of struggle and breakthrough, with long shadows cast by the focused lighting creating a cinematic, emotional atmosphere
     - Surrounding: Workplace, desk or office environment 
     - Main emotion: Calm, attentiveness The atmosphere: Warm and contemplative, melancholic yet gentle
-    - Lighting and mood: Low-key, cinematic, soft shadows, gentle falloff.
+    - Lighting and mood: Low-key, soft shadows, gentle falloff.
     - Camera angle/perspective: Medium shot
     """
 
@@ -260,7 +271,7 @@ def generate_scene_description(scene_text: str, scene_style_description: str = N
         print("\n" + "=" * 60)
         print("SCENE DESCRIPTION GENERATION PROMPT:")
         print("=" * 60)
-        print("System:", "You are a visual director. Generate concise, vivid scene descriptions for video scenes.")
+        print("System:", "You are a visual director. Analyze the following new scene text and generate a detailed, natural scene description of what should be shown. Return a maximum of 1000 characters.")
         print("-" * 60)
         print("User prompt:")
         print(prompt)
@@ -272,7 +283,7 @@ def generate_scene_description(scene_text: str, scene_style_description: str = N
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a visual director. Generate concise, vivid scene descriptions for video scenes.",
+                    "content": "You are a visual director. Analyze the following new scene text and generate a detailed, natural scene description of what should be shown. Return a maximum of 1000 characters.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -286,72 +297,71 @@ def generate_scene_description(scene_text: str, scene_style_description: str = N
         return f"Visual scene based on: {scene_text[:100]}..."
 
 
-def generate_image_prompt(scene_text: str, visual_style_description: str = None, visual_style_params: str = None) -> str:
+def iterate_scene_description(current_description: str, user_comments: str) -> str:
     """
-    Generate an image generation prompt from scene text and visual style description/parameters
+    Iterate on a scene description based on user feedback/comments.
+    Takes the current description + user comments and generates an updated description.
     """
-    style_instruction = ""
-    
-    # Use description as primary source (rich narrative description)
-    if visual_style_description:
-        style_instruction = f"\n\nVisual Style Description:\n{visual_style_description}"
-    elif visual_style_params:
-        # Fallback to parameters if description not available
-        try:
-            import json
-            params = json.loads(visual_style_params)
-            style_parts = []
-            if params.get("style"):
-                style_parts.append(f"Style: {params['style']}")
-            if params.get("mood"):
-                style_parts.append(f"Mood: {params['mood']}")
-            if params.get("color_palette"):
-                style_parts.append(f"Color palette: {params['color_palette']}")
-            if params.get("lighting"):
-                style_parts.append(f"Lighting: {params['lighting']}")
-            if params.get("camera_angle"):
-                style_parts.append(f"Camera angle: {params['camera_angle']}")
-            if params.get("additional_notes"):
-                style_parts.append(f"Additional notes: {params['additional_notes']}")
-            
-            if style_parts:
-                style_instruction = "\n\nVisual Style Parameters:\n" + "\n".join(style_parts)
-        except:
-            # If JSON parsing fails, use params as-is
-            style_instruction = f"\n\nVisual Style: {visual_style_params}"
-    
-    prompt = f"""Create a detailed, cinematic image generation prompt for this video scene:
+    prompt = f"""You are a visual director. Refine this scene description based on the user's feedback. Return a maximum of 1000 characters.
 
-    Scene: {scene_text}{style_instruction}
+Current scene description:
+{current_description}
 
-    The prompt should:
-    - Incorporate the visual style description fully into the scene
-    - Be visual and descriptive
-    - Include all style elements, mood, atmosphere, lighting, and color palette from the visual style
-    - Be suitable for AI image generation Nano Banana
+User feedback / requested changes:
+{user_comments}
 
-    Return only the final prompt, no explanation."""
+Generate an updated scene description that incorporates the user's feedback. Keep the same structured format (labels like Characters, Scene description, Surrounding, etc.) and maintain vivid, cinematic detail. Return only the updated scene description, no explanation or additional text."""
 
     try:
         client = get_openai_client()
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a visual prompt engineer. Return only the prompt.",
-                },
+                {"role": "system", "content": "You are a visual director. Refine scene descriptions based on feedback while preserving structure and quality."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.8,
+            temperature=0.7,
         )
-
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Error generating image prompt: {e}")
-        # Fallback: use scene text directly
-        return f"Cinematic scene: {scene_text}"
+        print(f"Error iterating scene description: {e}")
+        raise
 
+
+def generate_image_prompt(scene_description: str, visual_style_description: str = None, visual_style_params: str = None) -> str:
+    """
+    Combines scene description and visual style into an image generation prompt. No LLM call.
+    """
+    print(f"[WORKFLOW] 18. prompt: scene_description len={len(scene_description or '')} visual_style_description={visual_style_description is not None} visual_style_params={visual_style_params is not None}")
+    parts = [(scene_description or "").strip()]
+    if visual_style_description:
+        parts.append(visual_style_description.strip())
+    elif visual_style_params:
+        try:
+            import json
+            params = json.loads(visual_style_params)
+            style_parts = []
+            if params.get("style"):
+                style_parts.append(params["style"])
+            if params.get("mood"):
+                style_parts.append(params["mood"])
+            if params.get("color_palette"):
+                style_parts.append(params["color_palette"])
+            if params.get("lighting"):
+                style_parts.append(params["lighting"])
+            if params.get("camera_angle"):
+                style_parts.append(params["camera_angle"])
+            if params.get("additional_notes"):
+                style_parts.append(params["additional_notes"])
+            if style_parts:
+                parts.append(", ".join(str(p) for p in style_parts))
+            else:
+                parts.append(str(visual_style_params))
+        except Exception:
+            parts.append(str(visual_style_params))
+    result = " ".join(p for p in parts if p)
+    print(f"[WORKFLOW] 19. prompt: result len={len(result)} first 200 chars: {result[:200] if result else 'empty'}...")
+    return result if result else "Cinematic scene"
 
 def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_path: Optional[str] = None, model_id: Optional[str] = None) -> str:
     """
@@ -360,6 +370,7 @@ def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_
     If model_id is provided, uses that model instead of the default.
     Returns file path to the saved image.
     """
+    print(f"[WORKFLOW] 20. Leonardo: starting prompt len={len(prompt)} model_id={model_id} ref_image={reference_image_path}")
     import time
     api_key = os.getenv("LEONARDO_API_KEY")
     if not api_key:
@@ -587,7 +598,7 @@ def generate_image_with_dalle(prompt: str, output_path: str) -> str:
 
 def generate_image_with_stable_diffusion(
     prompt: str, output_path: str, api_url: str = None
-) -> str:
+    ) -> str:
     """
     Generate image using Stable Diffusion API (e.g., Stability AI or local)
     """
@@ -602,7 +613,7 @@ def generate_image_with_stable_diffusion(
 
 def create_video_from_images(
     image_paths: List[str], output_path: str, duration_per_image: float = 3.0
-) -> str:
+    ) -> str:
     """
     Create video from sequence of images using FFmpeg
     """

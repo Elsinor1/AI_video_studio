@@ -1,7 +1,7 @@
 """
 FastAPI backend for AI Video Creator workflow
 """
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -241,7 +241,7 @@ def update_scene(scene_id: int, scene: schemas.SceneUpdate, db: Session = Depend
 
 
 @app.post("/api/scenes/{scene_id}/generate-visual-description")
-def generate_scene_visual_description(scene_id: int, db: Session = Depends(get_db)):
+def generate_scene_visual_description(scene_id: int, continue_from_previous_scene: bool = False, db: Session = Depends(get_db)):
     """Generate a scene description for a scene using AI"""
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
@@ -256,12 +256,21 @@ def generate_scene_visual_description(scene_id: int, db: Session = Depends(get_d
             scene_style_description = scene_style.description
             scene_style_params = scene_style.parameters
     
+    # Get previous scene description if continue_from_previous_scene
+    previous_scene_description = None
+    if continue_from_previous_scene:
+        scenes = crud.get_scenes_by_project(db=db, project_id=scene.project_id)
+        prev_scene = next((s for s in scenes if s.order == scene.order - 1), None)
+        if prev_scene and prev_scene.visual_description:
+            previous_scene_description = prev_scene.visual_description
+    
     # Generate scene description using AI with scene style
     from . import ai_services
     visual_description = ai_services.generate_scene_description(
         scene.text, 
         scene_style_description=scene_style_description,
-        scene_style_params=scene_style_params
+        scene_style_params=scene_style_params,
+        previous_scene_description=previous_scene_description
     )
     
     # Save to visual descriptions history
@@ -283,6 +292,34 @@ def generate_scene_visual_description(scene_id: int, db: Session = Depends(get_d
     return {"message": "Scene description generated", "visual_description": visual_description, "visual_description_id": visual_desc.id}
 
 
+@app.post("/api/scenes/{scene_id}/iterate-visual-description")
+def iterate_scene_visual_description(scene_id: int, body: schemas.VisualDescriptionIterateRequest, db: Session = Depends(get_db)):
+    """Iterate on the current scene description using user comments/feedback"""
+    scene = crud.get_scene(db=db, scene_id=scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    base_description = (body.current_description or "").strip() or scene.visual_description
+    if not base_description:
+        raise HTTPException(status_code=400, detail="No scene description to iterate on. Generate one first.")
+    if not body.comments.strip():
+        raise HTTPException(status_code=400, detail="Please provide comments for the update.")
+    from . import ai_services
+    updated_description = ai_services.iterate_scene_description(base_description, body.comments.strip())
+    visual_desc = crud.create_visual_description(
+        db=db,
+        visual_description=schemas.VisualDescriptionCreate(
+            scene_id=scene_id,
+            description=updated_description,
+            scene_style_id=scene.scene_style_id
+        )
+    )
+    scene.current_visual_description_id = visual_desc.id
+    scene.visual_description = updated_description
+    db.commit()
+    db.refresh(scene)
+    return {"message": "Scene description updated", "visual_description": updated_description, "visual_description_id": visual_desc.id}
+
+
 @app.get("/api/scenes/{scene_id}/visual-descriptions", response_model=list[schemas.VisualDescription])
 def get_scene_visual_descriptions(scene_id: int, db: Session = Depends(get_db)):
     """Get all scene descriptions for a scene"""
@@ -290,6 +327,15 @@ def get_scene_visual_descriptions(scene_id: int, db: Session = Depends(get_db)):
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
     return crud.get_visual_descriptions_by_scene(db=db, scene_id=scene_id)
+
+
+@app.put("/api/scenes/{scene_id}/visual-descriptions/{visual_description_id}")
+def update_visual_description_endpoint(scene_id: int, visual_description_id: int, body: schemas.VisualDescriptionUpdate, db: Session = Depends(get_db)):
+    """Update a visual description's text (manual edit)"""
+    updated = crud.update_visual_description(db=db, scene_id=scene_id, visual_description_id=visual_description_id, description=body.description)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Scene or scene description not found")
+    return {"message": "Scene description updated", "visual_description": updated.description}
 
 
 @app.put("/api/scenes/{scene_id}/visual-descriptions/{visual_description_id}/set-current")
@@ -301,16 +347,48 @@ def set_current_visual_description(scene_id: int, visual_description_id: int, db
     return {"message": "Current scene description updated", "visual_description": updated.visual_description}
 
 
+from pydantic import BaseModel
+
+
+class GenerateImageRequest(BaseModel):
+    scene_description: Optional[str] = None  # Currently displayed description; if omitted, uses scene's current
+    continue_from_previous_scene: Optional[bool] = False  # If true, use previous scene's image as reference
+
+
+PROMPT_MAX_CHARS = 1500  # Leonardo API limit per docs
+
+
 @app.post("/api/scenes/{scene_id}/generate-image")
-def generate_scene_image(scene_id: int, visual_style_id: int = None, model_id: str = None, db: Session = Depends(get_db)):
+def generate_scene_image(scene_id: int, visual_style_id: int = None, model_id: str = None, body: Optional[GenerateImageRequest] = Body(default=None), db: Session = Depends(get_db)):
     """Trigger image generation for a scene with optional model selection"""
+    print(f"[WORKFLOW] 8. API: generate-image received scene_id={scene_id} visual_style_id={visual_style_id} model_id={model_id} body={body}")
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
     
-    # Trigger image generation with visual style and model
+    scene_description = body.scene_description if body and body.scene_description else None
+    print(f"[WORKFLOW] 9. API: scene_description from body={scene_description is not None} (len={len(scene_description) if scene_description else 0})")
+    
+    # Build prompt to validate length before queuing (Leonardo limit: 1500 chars)
+    visual_style_description = None
+    visual_style_params = None
+    if visual_style_id:
+        visual_style = crud.get_visual_style(db=db, style_id=visual_style_id)
+        if visual_style:
+            visual_style_description = visual_style.description
+            visual_style_params = visual_style.parameters
+    desc = scene_description or scene.visual_description or scene.text
+    prompt = ai_services.generate_image_prompt(desc, visual_style_description, visual_style_params)
+    if len(prompt) > PROMPT_MAX_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Prompt exceeds {PROMPT_MAX_CHARS} character limit (Leonardo API). Current length: {len(prompt)}. Please shorten your scene description."
+        )
+    
+    continue_from_previous_scene = bool(body and body.continue_from_previous_scene)
     from .tasks import generate_image_task
-    generate_image_task.delay(scene_id, visual_style_id, model_id)
+    generate_image_task.delay(scene_id, visual_style_id, model_id, scene_description, continue_from_previous_scene)
+    print(f"[WORKFLOW] 10. API: Task queued, returning")
     
     return {"message": "Image generation started"}
 
@@ -324,12 +402,16 @@ def get_images(scene_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/images/{image_id}/approve")
 def approve_image(image_id: int, db: Session = Depends(get_db)):
-    """Approve an image"""
+    """Approve an image and save it as the scene's approved image (used when continuing from previous scene)"""
     image = crud.get_image(db=db, image_id=image_id)
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
     
     image.status = "approved"
+    # Save approved image to scene so it's used as reference when continuing from previous scene
+    scene = crud.get_scene(db=db, scene_id=image.scene_id)
+    if scene:
+        scene.approved_image_id = image_id
     db.commit()
     
     return {"message": "Image approved"}

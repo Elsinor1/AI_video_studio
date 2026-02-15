@@ -295,7 +295,26 @@ def get_visual_description(db: Session, desc_id: int):
 
 
 def get_visual_descriptions_by_scene(db: Session, scene_id: int):
-    return db.query(models.VisualDescription).filter(models.VisualDescription.scene_id == scene_id).order_by(desc(models.VisualDescription.created_at)).all()
+    return db.query(models.VisualDescription).filter(models.VisualDescription.scene_id == scene_id).order_by(models.VisualDescription.created_at).all()
+
+
+def update_visual_description(db: Session, scene_id: int, visual_description_id: int, description: str):
+    """Update a visual description's text. Verifies it belongs to the scene."""
+    desc = db.query(models.VisualDescription).filter(
+        models.VisualDescription.id == visual_description_id,
+        models.VisualDescription.scene_id == scene_id
+    ).first()
+    if not desc:
+        return None
+    desc.description = description
+    db.commit()
+    db.refresh(desc)
+    # Also update scene.visual_description if this is the current one
+    scene = db.query(models.Scene).filter(models.Scene.id == scene_id).first()
+    if scene and scene.current_visual_description_id == visual_description_id:
+        scene.visual_description = description
+        db.commit()
+    return desc
 
 
 def update_scene_current_description(db: Session, scene_id: int, visual_description_id: int):

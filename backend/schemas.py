@@ -86,6 +86,7 @@ class SceneUpdate(BaseModel):
     visual_description: Optional[str] = None
     scene_style_id: Optional[int] = None
     image_reference_id: Optional[int] = None
+    approved_image_id: Optional[int] = None
     order: Optional[int] = None
     status: Optional[str] = None
 
@@ -97,6 +98,7 @@ class Scene(SceneBase):
     current_visual_description_id: Optional[int] = None
     scene_style_id: Optional[int] = None
     image_reference_id: Optional[int] = None
+    approved_image_id: Optional[int] = None
     status: str
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -114,6 +116,10 @@ class VisualDescriptionCreate(VisualDescriptionBase):
     scene_id: int
 
 
+class VisualDescriptionUpdate(BaseModel):
+    description: str
+
+
 class VisualDescription(VisualDescriptionBase):
     id: int
     scene_id: int
@@ -121,6 +127,12 @@ class VisualDescription(VisualDescriptionBase):
     
     class Config:
         from_attributes = True
+
+
+class VisualDescriptionIterateRequest(BaseModel):
+    """Request body for iterating on a scene description with user feedback"""
+    comments: str
+    current_description: Optional[str] = None  # Description to iterate on; if omitted, uses scene's current
 
 
 class ScriptPromptBase(BaseModel):
