@@ -42,6 +42,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const [promptModalOpen, setPromptModalOpen] = useState(false)
   const [editedDescription, setEditedDescription] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
+  const [editingDescription, setEditingDescription] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -60,6 +61,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     const desc = visualDescriptions[currentDescriptionIndex]
     const disp = desc?.description ?? scene?.visual_description ?? ''
     setEditedDescription(disp)
+    setEditingDescription(false)
   }, [visualDescriptions, currentDescriptionIndex, scene?.visual_description, scene?.id])
 
   // Load presets (scene styles, visual styles, image references) on mount
@@ -224,12 +226,19 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
         await axios.put(`${API_BASE}/scenes/${scene.id}`, { visual_description: editedDescription })
       }
       setScene(prev => prev ? { ...prev, visual_description: editedDescription } : null)
+      setEditingDescription(false)
     } catch (error) {
       console.error('Error saving description:', error)
       alert('Error saving description: ' + (error.response?.data?.detail || error.message))
     } finally {
       setSavingDescription(false)
     }
+  }
+
+  const handleCancelEditDescription = () => {
+    const orig = getCurrentDescription()?.description ?? scene?.visual_description ?? ''
+    setEditedDescription(orig)
+    setEditingDescription(false)
   }
 
   const handleGenerateVisualDescription = async () => {
@@ -365,9 +374,9 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const hasMultipleImages = images.length > 1
 
   return (
-    <div className="card" style={{ padding: '16px' }}>
+    <div className="card scene-detail-card" style={{ padding: '16px', marginBottom: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button className="btn btn-secondary" onClick={onBack}>← Back</button>
           <h2 style={{ margin: 0, fontSize: '18px' }}>Scene {scene.order}</h2>
@@ -380,7 +389,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
 
       {/* Scene text + Edit */}
       {editing ? (
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px', flexShrink: 0 }}>
           <textarea
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
@@ -392,7 +401,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px', flexShrink: 0 }}>
           <p style={{ flex: 1, margin: 0, padding: '10px 12px', background: 'var(--bg-surface-alt)', borderRadius: '6px', fontSize: '15px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             {scene.text}
           </p>
@@ -401,10 +410,11 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
       )}
 
       {/* Two columns: Left = controls + description | Right = image (520px) + other versions (100px) */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 632px', gap: '24px', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 632px', gap: '24px', ...(editingDescription ? { flex: 1, minHeight: 0, gridTemplateRows: '1fr', alignItems: 'stretch' } : { alignItems: 'start' }) }}>
         {/* Left column */}
-        <div>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+        <div style={editingDescription ? { display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}>
+          {!editingDescription && (
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Scene:</label>
               <select value={selectedSceneStyle || ''} onChange={(e) => handleSceneStyleChange(e.target.value)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '130px' }}>
@@ -430,34 +440,46 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
               </button>
             </div>
           </div>
+          )}
 
           {displayDescription ? (
-            <div style={{ padding: '10px 12px', background: 'var(--bg-surface-alt)', borderRadius: '6px', border: '1px solid var(--info)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+            <div style={{ padding: '10px 12px', background: 'var(--bg-surface-alt)', borderRadius: '6px', border: '1px solid var(--info)', ...(editingDescription ? { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } : {}) }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap', flexShrink: 0 }}>
                 <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Scene Description</span>
-                {visualDescriptions.length > 1 && (
+                {visualDescriptions.length > 1 && !editingDescription && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <button className="btn btn-secondary" onClick={() => handleNavigateDescription('prev')} disabled={currentDescriptionIndex <= 0}>←</button>
                     <span style={{ fontSize: '13px', color: 'var(--text-muted)', minWidth: '40px', textAlign: 'center' }}>{currentDescriptionIndex + 1}/{visualDescriptions.length}</span>
                     <button className="btn btn-secondary" onClick={() => handleNavigateDescription('next')} disabled={currentDescriptionIndex >= visualDescriptions.length - 1}>→</button>
                   </div>
                 )}
-                {(editedDescription !== (getCurrentDescription()?.description ?? scene?.visual_description ?? '')) && (
-                  <button className="btn btn-primary" onClick={handleSaveDescription} disabled={savingDescription} style={{ marginLeft: 'auto' }}>
-                    {savingDescription ? '...' : 'Save'}
-                  </button>
+                {!editingDescription ? (
+                  <button className="btn btn-secondary" onClick={() => setEditingDescription(true)} style={{ marginLeft: 'auto' }}>Edit</button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
+                    <button className="btn btn-primary" onClick={handleSaveDescription} disabled={savingDescription || editedDescription === (getCurrentDescription()?.description ?? scene?.visual_description ?? '')}>
+                      {savingDescription ? '...' : 'Save'}
+                    </button>
+                    <button className="btn btn-secondary" onClick={handleCancelEditDescription}>Cancel</button>
+                  </div>
                 )}
               </div>
-              <textarea
-                value={editedDescription}
-                onChange={(e) => setEditedDescription(e.target.value)}
-                style={{ width: '100%', minHeight: '80px', margin: 0, padding: '8px 10px', fontSize: '15px', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.4, border: '1px solid var(--border)', borderRadius: '4px', resize: 'vertical', background: 'var(--bg-surface)' }}
-              />
-              <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              {editingDescription ? (
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  <textarea
+                    value={editedDescription}
+                    onChange={(e) => setEditedDescription(e.target.value)}
+                    style={{ flex: 1, width: '100%', minHeight: 0, margin: 0, padding: '8px 10px', fontSize: '15px', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.4, border: '1px solid var(--border)', borderRadius: '4px', resize: 'none', background: 'var(--bg-surface)' }}
+                  />
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: '15px', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{editedDescription}</p>
+              )}
+              <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0 }}>
                 {editedDescription.length} / 1500 characters
               </div>
-              {displayDescription && (
-                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+              {displayDescription && !editingDescription && (
+                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'flex-start', flexShrink: 0 }}>
                   <textarea
                     value={iterateComments}
                     onChange={(e) => setIterateComments(e.target.value)}
@@ -476,7 +498,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
         </div>
 
         {/* Right column: Visual + Ref + Model + Generate, then Main image | Other versions */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', ...(editingDescription ? { alignSelf: 'start' } : {}) }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Visual:</label>

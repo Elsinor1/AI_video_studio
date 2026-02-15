@@ -90,6 +90,8 @@ function WorkflowBar() {
 }
 
 function App() {
+  const location = useLocation()
+  const isSceneDetailPage = /\/projects\/\d+\/scenes\/\d+$/.test(location.pathname)
   const [projects, setProjects] = useState([])
   const [theme, setTheme] = useState(() => {
     try {
@@ -122,11 +124,12 @@ function App() {
   }
 
   return (
-    <div>
+    <div style={isSceneDetailPage ? { height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}}>
       <NavigationBar theme={theme} onToggleTheme={toggleTheme} />
-      <div className="container">
+      <div className="container" style={isSceneDetailPage ? { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}>
         <WorkflowBar />
 
+        <div style={isSceneDetailPage ? { flex: 1, overflow: 'hidden', minHeight: 0 } : {}}>
         <Routes>
         <Route path="/" element={<ProjectListPage projects={projects} onProjectsChange={loadProjects} />} />
         <Route path="/projects/new" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
@@ -140,6 +143,7 @@ function App() {
         <Route path="/script-prompts" element={<ScriptPromptsList />} />
         <Route path="/image-references" element={<ImageReferencesList />} />
         </Routes>
+        </div>
       </div>
     </div>
   )
@@ -268,15 +272,17 @@ function SceneDetailPage() {
   const prevScene = sceneIndex > 0 ? scenes[sceneIndex - 1] : null
 
   return (
-    <SceneDetail
-      scriptId={parseInt(id)}
-      sceneId={parseInt(sceneId)}
-      onBack={() => navigate(`/projects/${id}/scenes`)}
-      onNextScene={nextScene ? () => navigate(`/projects/${id}/scenes/${nextScene.id}`) : undefined}
-      onPrevScene={prevScene ? () => navigate(`/projects/${id}/scenes/${prevScene.id}`) : undefined}
-      hasNextScene={!!nextScene}
-      hasPrevScene={!!prevScene}
-    />
+    <div style={{ height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <SceneDetail
+        scriptId={parseInt(id)}
+        sceneId={parseInt(sceneId)}
+        onBack={() => navigate(`/projects/${id}/scenes`)}
+        onNextScene={nextScene ? () => navigate(`/projects/${id}/scenes/${nextScene.id}`) : undefined}
+        onPrevScene={prevScene ? () => navigate(`/projects/${id}/scenes/${prevScene.id}`) : undefined}
+        hasNextScene={!!nextScene}
+        hasPrevScene={!!prevScene}
+      />
+    </div>
   )
 }
 
