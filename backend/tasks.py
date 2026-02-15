@@ -68,8 +68,8 @@ def segment_project_task(project_id: int):
 
 
 @celery_app.task
-def generate_image_task(scene_id: int, visual_style_id: int = None):
-    """Generate image for a scene with optional visual style"""
+def generate_image_task(scene_id: int, visual_style_id: int = None, model_id: str = None):
+    """Generate image for a scene with optional visual style and model selection"""
     db = SessionLocal()
     try:
         scene = crud.get_scene(db=db, scene_id=scene_id)
@@ -116,7 +116,7 @@ def generate_image_task(scene_id: int, visual_style_id: int = None):
         output_path = os.path.join(output_dir, f"image_{image.id}.png")
         
         try:
-            file_path = ai_services.generate_image_with_leonardo(prompt, output_path, reference_image_path=reference_image_path)
+            file_path = ai_services.generate_image_with_leonardo(prompt, output_path, reference_image_path=reference_image_path, model_id=model_id)
             # Store relative path from storage directory
             relative_path = file_path.replace("storage/", "").replace("storage\\", "")
             crud.update_image(db=db, image_id=image.id, file_path=relative_path, status="pending")
@@ -131,27 +131,27 @@ def generate_image_task(scene_id: int, visual_style_id: int = None):
 
 @celery_app.task
 def create_video_task(project_id: int):
-    """Create video from approved images"""
+    """Create video from scene images"""
     db = SessionLocal()
     try:
         project = crud.get_project(db=db, project_id=project_id)
         if not project:
             return {"error": "Project not found"}
         
-        # Get all scenes with approved images
+        # Get all scenes with images (use the latest image for each scene)
         scenes = crud.get_scenes_by_project(db=db, project_id=project_id)
         image_paths = []
         
         for scene in scenes:
             images = crud.get_images_by_scene(db=db, scene_id=scene.id)
-            approved_image = next((img for img in images if img.status == "approved"), None)
-            if approved_image and approved_image.file_path:
+            latest_image = images[0] if images else None
+            if latest_image and latest_image.file_path:
                 # Convert relative path back to full path for FFmpeg
-                full_path = os.path.join("storage", approved_image.file_path)
+                full_path = os.path.join("storage", latest_image.file_path)
                 image_paths.append(full_path)
         
         if not image_paths:
-            return {"error": "No approved images found"}
+            return {"error": "No images found for scenes"}
         
         # Create video record
         video = crud.create_video(db=db, project_id=project_id)

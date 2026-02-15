@@ -18,8 +18,9 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   const [visualDescriptions, setVisualDescriptions] = useState({}) // sceneId -> array of descriptions
   const [currentDescriptionIndex, setCurrentDescriptionIndex] = useState({}) // sceneId -> current index
   const [segmentationPreview, setSegmentationPreview] = useState('')
-  const [segmentationPreviewOpen, setSegmentationPreviewOpen] = useState(true)
+  const [segmentationPreviewOpen, setSegmentationPreviewOpen] = useState(false)
   const [applyingPreview, setApplyingPreview] = useState(false)
+  const [sceneImages, setSceneImages] = useState({}) // sceneId -> images[]
 
   useEffect(() => {
     loadScenes()
@@ -34,8 +35,7 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
     const interval = setInterval(async () => {
       pollCount++
       const scenesData = await loadScenes()
-      
-      // Stop polling if we have scenes or reached max polls
+      scenesData.forEach(s => loadSceneImages(s.id))
       if (scenesData.length > 0 || pollCount >= maxPolls) {
         clearInterval(interval)
       }
@@ -45,28 +45,47 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   }, [scriptId])
 
   useEffect(() => {
-    // Initialize selected scene styles from loaded scenes
     const initialSceneStyles = {}
     const initialImageRefs = {}
-    const initialDescriptionIndices = {}
     scenes.forEach(scene => {
-      if (scene.scene_style_id) {
-        initialSceneStyles[scene.id] = scene.scene_style_id
-      }
-      if (scene.image_reference_id) {
-        initialImageRefs[scene.id] = scene.image_reference_id
-      }
-      // Load visual descriptions for each scene
+      if (scene.scene_style_id) initialSceneStyles[scene.id] = scene.scene_style_id
+      if (scene.image_reference_id) initialImageRefs[scene.id] = scene.image_reference_id
       if (scene.id) {
         loadVisualDescriptions(scene.id)
-        // Set current index to 0 (most recent) if descriptions exist
-        initialDescriptionIndices[scene.id] = 0
+        loadSceneImages(scene.id)
       }
     })
     setSelectedSceneStyles(prev => ({ ...prev, ...initialSceneStyles }))
     setSelectedImageRefs(prev => ({ ...prev, ...initialImageRefs }))
-    setCurrentDescriptionIndex(prev => ({ ...prev, ...initialDescriptionIndices }))
+    setCurrentDescriptionIndex(prev => {
+      const next = { ...prev }
+      scenes.forEach(scene => {
+        if (scene.id && next[scene.id] === undefined) {
+          next[scene.id] = 0
+        }
+      })
+      return next
+    })
+
+    if (scenes.length === 0) return
+    const imgInterval = setInterval(() => scenes.forEach(s => loadSceneImages(s.id)), 5000)
+    return () => clearInterval(imgInterval)
   }, [scenes])
+
+  const loadSceneImages = async (sceneId) => {
+    try {
+      const response = await axios.get(`${API_BASE}/scenes/${sceneId}/images`)
+      setSceneImages(prev => ({ ...prev, [sceneId]: response.data }))
+    } catch {
+      setSceneImages(prev => ({ ...prev, [sceneId]: [] }))
+    }
+  }
+
+  const getImageUrl = (image) => {
+    if (image.url) return image.url
+    if (image.file_path) return `/storage/${image.file_path.replace(/\\/g, '/')}`
+    return null
+  }
 
   const loadVisualDescriptions = async (sceneId) => {
     try {
@@ -77,7 +96,7 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
         setCurrentDescriptionIndex(prev => ({ ...prev, [sceneId]: 0 }))
       }
     } catch (error) {
-      console.error('Error loading visual descriptions:', error)
+      console.error('Error loading scene descriptions:', error)
       setVisualDescriptions(prev => ({ ...prev, [sceneId]: [] }))
     }
   }
@@ -218,7 +237,7 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
       setCurrentDescriptionIndex(prev => ({ ...prev, [sceneId]: 0 }))
     } catch (error) {
       console.error('Error generating visual description:', error)
-      alert('Error generating visual description: ' + (error.response?.data?.detail || error.message))
+      alert('Error generating scene description: ' + (error.response?.data?.detail || error.message))
     } finally {
       setGeneratingDescriptions({ ...generatingDescriptions, [sceneId]: false })
     }
@@ -260,7 +279,7 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
     return descriptions[currentIndex]
   }
 
-  const handleApprove = async (sceneId) => {
+  const handleGenerateImage = async (sceneId) => {
     try {
       // If this scene is currently being edited, save the edits first
       if (editingId === sceneId) {
@@ -273,29 +292,27 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
       // Get selected visual style for this scene
       const visualStyleId = selectedStyles[sceneId] || null
       
-      // Then approve with visual style
-      await axios.post(`${API_BASE}/scenes/${sceneId}/approve`, null, {
+      // Trigger image generation
+      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-image`, null, {
         params: visualStyleId ? { visual_style_id: visualStyleId } : {}
       })
-      alert('Scene approved! Image generation started.')
       loadScenes()
+      loadSceneImages(sceneId)
     } catch (error) {
-      console.error('Error approving scene:', error)
-      alert('Error approving scene')
+      console.error('Error generating image:', error)
+      alert('Error generating image')
     }
   }
 
-  const allApproved = scenes.length > 0 && scenes.every(s => s.status === 'approved')
-
   return (
-    <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>Scenes ({scenes.length})</h2>
+    <div className="card" style={{ padding: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <h2 style={{ margin: 0, fontSize: '18px' }}>Scenes ({scenes.length})</h2>
         <div>
           <button className="btn btn-secondary" onClick={onBack}>
             ← Back
           </button>
-          {allApproved && (
+          {scenes.length > 0 && (
             <button className="btn btn-primary" onClick={onNext} style={{ marginLeft: '10px' }}>
               View Images →
             </button>
@@ -303,8 +320,8 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
         </div>
       </div>
 
-      {/* Segmentation preview: one big text, --- separates scenes; reposition or add --- then Apply */}
-      <div style={{ marginBottom: '24px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-surface-alt)' }}>
+      {/* Segmentation preview - collapsed by default */}
+      <div style={{ marginBottom: '12px', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-surface-alt)' }}>
         <button
           type="button"
           onClick={() => setSegmentationPreviewOpen(!segmentationPreviewOpen)}
@@ -339,7 +356,7 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
               placeholder="Scene 1 text...&#10;&#10;---&#10;&#10;Scene 2 text..."
               style={{
                 width: '100%',
-                minHeight: '280px',
+                minHeight: '120px',
                 fontFamily: 'inherit',
                 fontSize: '14px',
                 lineHeight: '1.5',
@@ -377,308 +394,119 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
       ) : scenes.length === 0 ? (
         <p>No scenes yet. Scenes will appear here after script segmentation completes.</p>
       ) : (
-        <div>
-          {scenes.map((scene) => (
-            <div key={scene.id} className="scene-item">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <h3 style={{ margin: 0 }}>Scene {scene.order}</h3>
-                  {onOpenScene && (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => onOpenScene(scene.id)}
-                      style={{ fontSize: '13px', padding: '4px 12px' }}
-                    >
-                      Open Scene →
-                    </button>
-                  )}
-                </div>
-                <span className={`status-badge status-${scene.status}`}>
-                  {scene.status}
-                </span>
-              </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {scenes.map((scene) => {
+            const images = sceneImages[scene.id] || []
+            const displayImage = images[0]
+            const imageUrl = displayImage ? getImageUrl(displayImage) : null
 
-              {editingId === scene.id ? (
-                <div>
-                  <textarea
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    style={{ minHeight: '100px' }}
-                  />
-                  {scene.status !== 'approved' && (
-                    <>
-                      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>
-                          Scene Style (optional):
-                        </label>
-                        <select
-                          value={selectedSceneStyles[scene.id] || ''}
-                          onChange={(e) => setSelectedSceneStyles({ ...selectedSceneStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
-                        >
-                          <option value="">None (default)</option>
-                          {sceneStyles.map((style) => (
-                            <option key={style.id} value={style.id}>
-                              {style.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>
-                          Visual Style (optional):
-                        </label>
-                        <select
-                          value={selectedStyles[scene.id] || ''}
-                          onChange={(e) => setSelectedStyles({ ...selectedStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
-                        >
-                          <option value="">None (default)</option>
-                          {visualStyles.map((style) => (
-                            <option key={style.id} value={style.id}>
-                              {style.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>
-                          Reference Image (optional):
-                        </label>
-                        <select
-                          value={selectedImageRefs[scene.id] || ''}
-                          onChange={(e) => setSelectedImageRefs({ ...selectedImageRefs, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
-                        >
-                          <option value="">None</option>
-                          {imageReferences.map((ref) => (
-                            <option key={ref.id} value={ref.id}>
-                              {ref.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </>
+            return (
+              <div key={scene.id} className="scene-item" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'var(--bg-surface-alt)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                {/* Top: Scene header with order + status */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px' }}>Scene {scene.order}</h3>
+                  {onOpenScene && (
+                    <button className="btn btn-primary" onClick={() => onOpenScene(scene.id)}>
+                      Open →
+                    </button>
                   )}
-                  <div>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => handleSaveEdit(scene.id)}
-                    >
-                      Save
-                    </button>
-                    {scene.status !== 'approved' && (
-                      <button
-                        className="btn btn-success"
-                        onClick={() => handleApprove(scene.id)}
-                      >
-                        Save & Approve
-                      </button>
-                    )}
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setEditingId(null)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 </div>
-              ) : (
-                <div>
-                  <div style={{ marginBottom: '15px' }}>
-                    <h4 style={{ marginBottom: '8px', fontSize: '14px', fontWeight: 'bold', color: 'var(--text-muted)' }}>
-                      Scene Text:
-                    </h4>
-                    <p style={{ margin: 0, padding: '10px', background: 'var(--bg-surface-alt)', borderRadius: '4px' }}>
+
+                {/* Scene text (wide) + Edit button to the right */}
+                {editingId === scene.id ? (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      style={{ flex: 1, minHeight: '60px', padding: '8px', fontSize: '15px', border: '1px solid var(--border)', borderRadius: '4px' }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <button className="btn btn-primary" onClick={() => handleSaveEdit(scene.id)}>Save</button>
+                      <button className="btn btn-secondary" onClick={() => setEditingId(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                    <p style={{ flex: 1, margin: 0, padding: '8px 10px', background: 'var(--bg-surface)', borderRadius: '4px', fontSize: '15px', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
                       {scene.text}
                     </p>
+                    <button className="btn btn-secondary" onClick={() => handleEdit(scene)} style={{ flexShrink: 0 }}>Edit</button>
                   </div>
+                )}
 
-                  {(scene.visual_description || (visualDescriptions[scene.id] && visualDescriptions[scene.id].length > 0)) && (
-                    <div style={{ marginBottom: '15px', padding: '12px', background: 'var(--bg-surface-alt)', borderRadius: '4px', border: '1px solid var(--info)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                            Visual Description:
-                          </h4>
-                          {visualDescriptions[scene.id] && visualDescriptions[scene.id].length > 1 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() => handleNavigateDescription(scene.id, 'prev')}
-                                disabled={(currentDescriptionIndex[scene.id] || 0) >= visualDescriptions[scene.id].length - 1}
-                                style={{ 
-                                  fontSize: '12px', 
-                                  padding: '2px 6px',
-                                  minWidth: '30px'
-                                }}
-                                title="Older description"
-                              >
-                                ←
-                              </button>
-                              <span style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: '50px', textAlign: 'center' }}>
-                                {((currentDescriptionIndex[scene.id] || 0) + 1)} / {visualDescriptions[scene.id].length}
-                              </span>
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() => handleNavigateDescription(scene.id, 'next')}
-                                disabled={(currentDescriptionIndex[scene.id] || 0) <= 0}
-                                style={{ 
-                                  fontSize: '12px', 
-                                  padding: '2px 6px',
-                                  minWidth: '30px'
-                                }}
-                                title="Newer description"
-                              >
-                                →
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        {scene.status !== 'approved' && (
-                          <button
-                            className="btn btn-info"
-                            onClick={() => handleGenerateVisualDescription(scene.id)}
-                            disabled={generatingDescriptions[scene.id]}
-                            style={{ 
-                              fontSize: '12px', 
-                              padding: '4px 8px',
-                              backgroundColor: generatingDescriptions[scene.id] ? '#ccc' : '#17a2b8'
-                            }}
-                            title="Generate new visual description with current scene style"
-                          >
-                            {generatingDescriptions[scene.id] ? 'Generating...' : 'Generate New'}
-                          </button>
-                        )}
-                      </div>
-                      <p style={{ margin: 0, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                        {getCurrentDescription(scene.id)?.description || scene.visual_description}
-                      </p>
-                      {getCurrentDescription(scene.id) && (
-                        <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '8px', fontSize: '11px' }}>
-                          Generated {new Date(getCurrentDescription(scene.id).created_at).toLocaleString()}
-                        </small>
-                      )}
+                {/* Bottom: Left = Scene style + Visual style | Right = Generated image */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', alignItems: 'start' }}>
+                  <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '18px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Scene:</label>
+                      <select
+                        value={selectedSceneStyles[scene.id] || ''}
+                        onChange={(e) => handleSceneStyleChange(scene.id, e.target.value)}
+                        style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '130px' }}
+                      >
+                        <option value="">None</option>
+                        {sceneStyles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
                     </div>
-                  )}
-
-                  {scene.status !== 'approved' && (
-                    <>
-                      <div style={{ marginTop: '10px', marginBottom: '10px', padding: '10px', background: 'var(--bg-surface-alt)', borderRadius: '4px', border: '1px solid var(--border)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                          <label style={{ fontSize: '14px', fontWeight: 'bold' }}>
-                            Scene Style (for testing):
-                          </label>
-                          {scene.visual_description && (
-                            <button
-                              className="btn btn-info"
-                              onClick={() => handleGenerateVisualDescription(scene.id)}
-                              disabled={generatingDescriptions[scene.id]}
-                              style={{ 
-                                fontSize: '11px', 
-                                padding: '3px 6px',
-                                backgroundColor: generatingDescriptions[scene.id] ? '#ccc' : '#17a2b8'
-                              }}
-                            >
-                              {generatingDescriptions[scene.id] ? 'Generating...' : 'Regenerate'}
-                            </button>
-                          )}
-                        </div>
-                        <select
-                          value={selectedSceneStyles[scene.id] || ''}
-                          onChange={(e) => handleSceneStyleChange(scene.id, e.target.value)}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px', width: '100%' }}
-                        >
-                          <option value="">None (default)</option>
-                          {sceneStyles.map((style) => (
-                            <option key={style.id} value={style.id}>
-                              {style.name}
-                            </option>
-                          ))}
-                        </select>
-                        <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '5px' }}>
-                          {scene.visual_description 
-                            ? 'Change scene style and click "Regenerate" to test different visual descriptions'
-                            : 'Scene style affects visual description generation. Generate a description after selecting a style.'}
-                        </small>
-                      </div>
-                      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>
-                          Visual Style (optional):
-                        </label>
-                        <select
-                          value={selectedStyles[scene.id] || ''}
-                          onChange={(e) => setSelectedStyles({ ...selectedStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
-                        >
-                          <option value="">None (default)</option>
-                          {visualStyles.map((style) => (
-                            <option key={style.id} value={style.id}>
-                              {style.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold' }}>
-                          Reference Image (optional):
-                        </label>
-                        <select
-                          value={selectedImageRefs[scene.id] || ''}
-                          onChange={(e) => handleImageReferenceChange(scene.id, e.target.value)}
-                          style={{ padding: '5px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}
-                        >
-                          <option value="">None</option>
-                          {imageReferences.map((ref) => (
-                            <option key={ref.id} value={ref.id}>
-                              {ref.name}
-                            </option>
-                          ))}
-                        </select>
-                        <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '5px' }}>
-                          Used as reference for Leonardo image generation
-                        </small>
-                      </div>
-                    </>
-                  )}
-                  <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '18px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Visual:</label>
+                      <select
+                        value={selectedStyles[scene.id] || ''}
+                        onChange={(e) => setSelectedStyles({ ...selectedStyles, [scene.id]: e.target.value ? parseInt(e.target.value) : null })}
+                        style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '130px' }}
+                      >
+                        <option value="">None</option>
+                        {visualStyles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
                     <button
-                      className="btn btn-secondary"
-                      onClick={() => handleEdit(scene)}
+                      className="btn btn-info"
+                      onClick={() => handleGenerateVisualDescription(scene.id)}
+                      disabled={generatingDescriptions[scene.id]}
                     >
-                      Edit
+                      {generatingDescriptions[scene.id] ? '...' : 'Generate Scene Description'}
                     </button>
-                    {scene.status !== 'approved' && (
-                      <>
-                        {!scene.visual_description && (
-                          <button
-                            className="btn btn-info"
-                            onClick={() => handleGenerateVisualDescription(scene.id)}
-                            disabled={generatingDescriptions[scene.id]}
-                            style={{ backgroundColor: generatingDescriptions[scene.id] ? '#ccc' : '#17a2b8' }}
-                          >
-                            {generatingDescriptions[scene.id] ? 'Generating...' : 'Generate Scene'}
-                          </button>
-                        )}
-                        <button
-                          className="btn btn-success"
-                          onClick={() => handleApprove(scene.id)}
-                          disabled={!scene.visual_description}
-                          style={{ 
-                            backgroundColor: !scene.visual_description ? '#ccc' : undefined,
-                            cursor: !scene.visual_description ? 'not-allowed' : 'pointer'
-                          }}
-                          title={!scene.visual_description ? 'Generate a visual description first' : ''}
-                        >
-                          Approve & Generate Image
-                        </button>
-                      </>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                    <button
+                      className="btn btn-success"
+                      onClick={() => handleGenerateImage(scene.id)}
+                      disabled={!scene.visual_description}
+                      style={{ opacity: !scene.visual_description ? 0.6 : 1 }}
+                      title={!scene.visual_description ? 'Generate scene description first' : ''}
+                    >
+                      Generate image
+                    </button>
+                    <div style={{ width: '200px', height: '130px', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-hover)', flexShrink: 0 }}>
+                    {imageUrl ? (
+                      <img src={imageUrl} alt={`Scene ${scene.order}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
+                        No image
+                      </div>
                     )}
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Compact scene description - one line when present */}
+                {(scene.visual_description || (visualDescriptions[scene.id] && visualDescriptions[scene.id].length > 0)) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                    <span style={{ flex: 1, whiteSpace: 'pre-wrap', display: 'block' }}>
+                      {getCurrentDescription(scene.id)?.description || scene.visual_description}
+                    </span>
+                    {visualDescriptions[scene.id]?.length > 1 && (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button className="btn btn-secondary" onClick={() => handleNavigateDescription(scene.id, 'prev')} disabled={(currentDescriptionIndex[scene.id] || 0) >= visualDescriptions[scene.id].length - 1}>←</button>
+                        <span style={{ minWidth: '40px', textAlign: 'center', fontSize: '14px' }}>{(currentDescriptionIndex[scene.id] || 0) + 1}/{visualDescriptions[scene.id].length}</span>
+                        <button className="btn btn-secondary" onClick={() => handleNavigateDescription(scene.id, 'next')} disabled={(currentDescriptionIndex[scene.id] || 0) <= 0}>→</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

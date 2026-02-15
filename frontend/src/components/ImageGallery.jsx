@@ -10,16 +10,15 @@ function ImageGallery({ scriptId, onBack, onNext }) {
 
   useEffect(() => {
     loadData()
-    // Poll for new images, but stop once all scenes have approved images
+    // Poll for new images
     let pollCount = 0
     const maxPolls = 60 // Stop after 60 polls (5 minutes)
     
     const interval = setInterval(async () => {
       pollCount++
-      const shouldStop = await loadData()
+      await loadData()
       
-      // Stop polling if all scenes have approved images or reached max polls
-      if (shouldStop || pollCount >= maxPolls) {
+      if (pollCount >= maxPolls) {
         clearInterval(interval)
       }
     }, 5000)
@@ -45,55 +44,21 @@ function ImageGallery({ scriptId, onBack, onNext }) {
       }
       setImages(imagesData)
       setLoading(false)
-      
-      // Return true if all scenes have at least one approved image
-      const allHaveApproved = scenesData.every(scene => {
-        const sceneImages = imagesData[scene.id] || []
-        return sceneImages.some(img => img.status === 'approved')
-      })
-      
-      return allHaveApproved
     } catch (error) {
       console.error('Error loading data:', error)
       setLoading(false)
-      return false
-    }
-  }
-
-  const handleApprove = async (imageId) => {
-    try {
-      await axios.post(`${API_BASE}/images/${imageId}/approve`)
-      alert('Image approved!')
-      loadData()
-    } catch (error) {
-      console.error('Error approving image:', error)
-      alert('Error approving image')
-    }
-  }
-
-  const handleReject = async (imageId, sceneId) => {
-    try {
-      await axios.post(`${API_BASE}/images/${imageId}/reject`)
-      alert('Image rejected. Generating new one...')
-      loadData()
-    } catch (error) {
-      console.error('Error rejecting image:', error)
-      alert('Error rejecting image')
     }
   }
 
   const getImageUrl = (image) => {
     if (image.url) return image.url
-    if (image.file_path) {
-      // file_path is stored relative to storage/ directory
-      return `/storage/${image.file_path}`
-    }
+    if (image.file_path) return `/storage/${image.file_path.replace(/\\/g, '/')}`
     return null
   }
 
-  const allScenesHaveApprovedImages = scenes.every(scene => {
+  const allScenesHaveImages = scenes.length > 0 && scenes.every(scene => {
     const sceneImages = images[scene.id] || []
-    return sceneImages.some(img => img.status === 'approved')
+    return sceneImages.length > 0
   })
 
   return (
@@ -104,7 +69,7 @@ function ImageGallery({ scriptId, onBack, onNext }) {
           <button className="btn btn-secondary" onClick={onBack}>
             ← Back
           </button>
-          {allScenesHaveApprovedImages && (
+          {allScenesHaveImages && (
             <button className="btn btn-primary" onClick={onNext} style={{ marginLeft: '10px' }}>
               Create Video →
             </button>
@@ -118,7 +83,6 @@ function ImageGallery({ scriptId, onBack, onNext }) {
         <div>
           {scenes.map((scene) => {
             const sceneImages = images[scene.id] || []
-            const approvedImage = sceneImages.find(img => img.status === 'approved')
 
             return (
               <div key={scene.id} style={{ marginBottom: '30px' }}>
@@ -129,15 +93,13 @@ function ImageGallery({ scriptId, onBack, onNext }) {
                   <p style={{ color: 'var(--text-muted)' }}>No images generated yet...</p>
                 ) : (
                   <div className="image-gallery">
-                    {sceneImages.map((image) => {
+                    {sceneImages.map((image, index) => {
                       const imageUrl = getImageUrl(image)
-                      const isApproved = image.status === 'approved'
-                      const isRejected = image.status === 'rejected'
 
                       return (
                         <div
                           key={image.id}
-                          className={`image-item ${isApproved ? 'approved' : ''} ${isRejected ? 'rejected' : ''}`}
+                          className={`image-item ${index === 0 ? 'approved' : ''}`}
                         >
                           {imageUrl ? (
                             <img src={imageUrl} alt={`Scene ${scene.order}`} />
@@ -150,29 +112,9 @@ function ImageGallery({ scriptId, onBack, onNext }) {
                             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
                               {image.prompt}
                             </p>
-                            <span className={`status-badge status-${image.status}`}>
-                              {image.status}
-                            </span>
-                            <div style={{ marginTop: '10px' }}>
-                              {!isApproved && (
-                                <button
-                                  className="btn btn-success"
-                                  onClick={() => handleApprove(image.id)}
-                                  style={{ fontSize: '12px', padding: '5px 10px' }}
-                                >
-                                  Approve
-                                </button>
-                              )}
-                              {!isRejected && (
-                                <button
-                                  className="btn btn-danger"
-                                  onClick={() => handleReject(image.id, scene.id)}
-                                  style={{ fontSize: '12px', padding: '5px 10px' }}
-                                >
-                                  Reject & Regenerate
-                                </button>
-                              )}
-                            </div>
+                            {index === 0 && (
+                              <span style={{ fontSize: '11px', color: 'var(--success)', fontWeight: 'bold' }}>Latest</span>
+                            )}
                           </div>
                         </div>
                       )

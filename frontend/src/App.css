@@ -2,3 +2,116 @@
 .bg-alt { background: var(--bg-surface-alt) !important; }
 .text-muted { color: var(--text-muted) !important; }
 .border-default { border-color: var(--border) !important; }
+
+/* Workflow progress bar */
+.workflow-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 12px 20px;
+  margin-bottom: 20px;
+  background: var(--bg-surface);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 2px solid transparent;
+  border-radius: 24px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.workflow-step:hover:not(.disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workflow-step.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.workflow-step.active:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.workflow-step.past {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.workflow-step.past:hover:not(.disabled) {
+  background: var(--bg-hover);
+}
+
+.workflow-step.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.workflow-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.workflow-label {
+  line-height: 1;
+}
+
+.workflow-connector {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 20px;
+  font-weight: 300;
+  opacity: 0.5;
+  user-select: none;
+}
+
+.workflow-connector.past {
+  color: var(--success);
+  opacity: 0.8;
+}
+
+/* Breadcrumb when on scene detail page */
+.workflow-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 16px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.workflow-breadcrumb-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+}
+.workflow-breadcrumb-link:hover {
+  color: var(--primary-hover);
+}
+.workflow-breadcrumb-sep {
+  opacity: 0.6;
+}
+.workflow-breadcrumb-current {
+  color: var(--text-primary);
+}

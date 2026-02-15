@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Routes, Route, useNavigate, useParams } from 'react-router-dom'
+import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import NavigationBar from './components/NavigationBar'
 import ScriptList from './components/ScriptList'
@@ -18,7 +18,79 @@ const API_BASE = '/api'
 
 const THEME_KEY = 'ai-video-creator-theme'
 
+const WORKFLOW_STEPS = [
+  { key: 'projects', label: 'Projects', icon: '📁' },
+  { key: 'script', label: 'Script', icon: '📝' },
+  { key: 'scenes', label: 'Scenes', icon: '🎬' },
+  { key: 'images', label: 'Images', icon: '🖼️' },
+  { key: 'video', label: 'Video', icon: '🎥' },
+]
+
+function WorkflowBar() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const path = location.pathname
+
+  // Extract project ID from path
+  const projectMatch = path.match(/\/projects\/(\d+)/)
+  const projectId = projectMatch ? projectMatch[1] : null
+
+  // Determine active step
+  let activeStep = 'projects'
+  if (projectId) {
+    if (path.includes('/video')) activeStep = 'video'
+    else if (path.includes('/images')) activeStep = 'images'
+    else if (path.includes('/scenes')) activeStep = 'scenes'
+    else activeStep = 'script'
+  }
+
+  const stepIndex = WORKFLOW_STEPS.findIndex(s => s.key === activeStep)
+
+  const handleStepClick = (step) => {
+    if (step.key === 'projects') {
+      navigate('/')
+      return
+    }
+    if (!projectId) return
+    switch (step.key) {
+      case 'script': navigate(`/projects/${projectId}`); break
+      case 'scenes': navigate(`/projects/${projectId}/scenes`); break
+      case 'images': navigate(`/projects/${projectId}/images`); break
+      case 'video': navigate(`/projects/${projectId}/video`); break
+    }
+  }
+
+  return (
+    <div className="workflow-bar">
+      {WORKFLOW_STEPS.map((step, i) => {
+        const isActive = step.key === activeStep
+        const isPast = i < stepIndex
+        const isClickable = step.key === 'projects' || !!projectId
+
+        return (
+          <React.Fragment key={step.key}>
+            {i > 0 && (
+              <div className={`workflow-connector ${isPast ? 'past' : ''}`}>
+                <span>›</span>
+              </div>
+            )}
+            <button
+              className={`workflow-step ${isActive ? 'active' : ''} ${isPast ? 'past' : ''} ${!isClickable ? 'disabled' : ''}`}
+              onClick={() => isClickable && handleStepClick(step)}
+              disabled={!isClickable}
+            >
+              <span className="workflow-icon">{step.icon}</span>
+              <span className="workflow-label">{step.label}</span>
+            </button>
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
 function App() {
+  const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [theme, setTheme] = useState(() => {
     try {
@@ -50,22 +122,32 @@ function App() {
     }
   }
 
+  const location = useLocation()
+  const sceneDetailMatch = location.pathname.match(/\/projects\/(\d+)\/scenes\/(\d+)/)
+
   return (
     <div>
       <NavigationBar theme={theme} onToggleTheme={toggleTheme} />
       <div className="container">
-        <div className="header">
-          <p>Workflow: Project → Script → Scenes → Images → Video</p>
-        </div>
+        <WorkflowBar />
+        {sceneDetailMatch && (
+          <div className="workflow-breadcrumb">
+            <button type="button" className="workflow-breadcrumb-link" onClick={() => navigate(`/projects/${sceneDetailMatch[1]}/scenes`)}>
+              Scenes
+            </button>
+            <span className="workflow-breadcrumb-sep">›</span>
+            <span className="workflow-breadcrumb-current">Scene detail</span>
+          </div>
+        )}
 
         <Routes>
         <Route path="/" element={<ProjectListPage projects={projects} onProjectsChange={loadProjects} />} />
         <Route path="/projects/new" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
-        <Route path="/projects/:id" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
-        <Route path="/projects/:id/scenes" element={<SceneEditorPage />} />
         <Route path="/projects/:id/scenes/:sceneId" element={<SceneDetailPage />} />
+        <Route path="/projects/:id/scenes" element={<SceneEditorPage />} />
         <Route path="/projects/:id/images" element={<ImageGalleryPage />} />
         <Route path="/projects/:id/video" element={<VideoViewerPage />} />
+        <Route path="/projects/:id" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
         <Route path="/styles" element={<VisualStylesList />} />
         <Route path="/scene-styles" element={<SceneStylesList />} />
         <Route path="/script-prompts" element={<ScriptPromptsList />} />

@@ -73,3 +73,8 @@ pip install openai celery redis pillow --trusted-host pypi.org --trusted-host py
 ### Module not found?
 - Make sure virtual environment is activated: `source .venv/Scripts/activate`
 - Install missing packages from requirements.txt
+
+### Windows: "OSError: [WinError 87] Parametr není správný" when stopping?
+- This appears when pressing Ctrl+C to stop `run_dev.sh`. It's harmless.
+- Caused by uvicorn's `--reload` spawning a child process that outlives its parent.
+- Safe to ignore – all services are stopped correctly.

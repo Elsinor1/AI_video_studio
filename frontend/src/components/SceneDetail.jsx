@@ -3,6 +3,16 @@ import axios from 'axios'
 
 const API_BASE = '/api'
 
+const IMAGE_MODELS = [
+  { id: '', label: 'Default (Leonardo Diffusion XL)' },
+  { id: 'gemini-2.5-flash-image', label: 'Nano Banana' },
+  { id: 'gemini-image-2', label: 'Nano Banana Pro' },
+  { id: 'de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3', label: 'Leonardo Phoenix 1.0' },
+  { id: '6b645e3a-d64f-4341-a6d8-7a3690fbf042', label: 'Leonardo Phoenix 0.9' },
+  { id: '1e60896f-3c26-4296-8ecc-53e2afecc132', label: 'Leonardo Diffusion XL' },
+  { id: 'b24e16ff-06e3-43eb-8d33-4416c2d75876', label: 'Leonardo Lightning XL' },
+]
+
 function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasNextScene, hasPrevScene }) {
   const [scene, setScene] = useState(null)
   const [scenes, setScenes] = useState([])
@@ -20,9 +30,14 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const [currentDescriptionIndex, setCurrentDescriptionIndex] = useState(0)
   const [images, setImages] = useState([])
   const [loadingImages, setLoadingImages] = useState(true)
+  const [selectedModel, setSelectedModel] = useState('')
 
   useEffect(() => {
     loadData()
+    const imgInterval = setInterval(() => {
+      if (sceneId) loadImages(parseInt(sceneId), false)
+    }, 5000)
+    return () => clearInterval(imgInterval)
   }, [scriptId, sceneId])
 
   // Load presets (scene styles, visual styles, image references) on mount
@@ -75,15 +90,15 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     }
   }
 
-  const loadImages = async (sid) => {
-    setLoadingImages(true)
+  const loadImages = async (sid, showLoading = true) => {
+    if (showLoading) setLoadingImages(true)
     try {
       const response = await axios.get(`${API_BASE}/scenes/${sid}/images`)
       setImages(response.data)
     } catch (error) {
       setImages([])
     } finally {
-      setLoadingImages(false)
+      if (showLoading) setLoadingImages(false)
     }
   }
 
@@ -163,7 +178,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
       setCurrentDescriptionIndex(0)
     } catch (error) {
       console.error('Error generating visual description:', error)
-      alert('Error generating visual description: ' + (error.response?.data?.detail || error.message))
+      alert('Error generating scene description: ' + (error.response?.data?.detail || error.message))
     } finally {
       setGeneratingDescription(false)
     }
@@ -194,44 +209,24 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     return visualDescriptions[currentDescriptionIndex]
   }
 
-  const handleApprove = async () => {
+  const handleGenerateImage = async () => {
     if (!scene) return
     try {
-      await axios.post(`${API_BASE}/scenes/${scene.id}/approve`, null, {
-        params: selectedStyle ? { visual_style_id: selectedStyle } : {},
-      })
-      alert('Scene approved! Image generation started.')
+      const params = {}
+      if (selectedStyle) params.visual_style_id = selectedStyle
+      if (selectedModel) params.model_id = selectedModel
+      await axios.post(`${API_BASE}/scenes/${scene.id}/generate-image`, null, { params })
       await loadData()
-      await loadImages(scene.id)
+      await loadImages(scene.id, true)
     } catch (error) {
-      console.error('Error approving scene:', error)
-      alert('Error approving scene')
-    }
-  }
-
-  const handleApproveImage = async (imageId) => {
-    try {
-      await axios.post(`${API_BASE}/images/${imageId}/approve`)
-      alert('Image approved!')
-      await loadImages(scene.id)
-    } catch (error) {
-      console.error('Error approving image:', error)
-    }
-  }
-
-  const handleRejectImage = async (imageId) => {
-    try {
-      await axios.post(`${API_BASE}/images/${imageId}/reject`)
-      alert('Image rejected. Generating new one...')
-      await loadImages(scene.id)
-    } catch (error) {
-      console.error('Error rejecting image:', error)
+      console.error('Error generating image:', error)
+      alert('Error generating image')
     }
   }
 
   const getImageUrl = (image) => {
     if (image.url) return image.url
-    if (image.file_path) return `/storage/${image.file_path}`
+    if (image.file_path) return `/storage/${image.file_path.replace(/\\/g, '/')}`
     return null
   }
 
@@ -252,300 +247,133 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
 
   const currentDesc = getCurrentDescription()
   const displayDescription = currentDesc?.description || scene.visual_description
+  const mainImage = images[0]
 
   return (
-    <div className="card">
-      {/* Header with navigation */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button className="btn btn-secondary" onClick={onBack}>
-            ← Back
-          </button>
-          <h2 style={{ margin: 0 }}>Scene {scene.order}</h2>
-          <span className={`status-badge status-${scene.status}`}>{scene.status}</span>
+    <div className="card" style={{ padding: '16px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn btn-secondary" onClick={onBack}>← Back</button>
+          <h2 style={{ margin: 0, fontSize: '18px' }}>Scene {scene.order}</h2>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {hasPrevScene && (
-            <button className="btn btn-secondary" onClick={onPrevScene}>
-              ← Prev Scene
-            </button>
-          )}
-          {hasNextScene && (
-            <button className="btn btn-secondary" onClick={onNextScene}>
-              Next Scene →
-            </button>
-          )}
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {hasPrevScene && <button className="btn btn-secondary" onClick={onPrevScene}>← Prev</button>}
+          {hasNextScene && <button className="btn btn-secondary" onClick={onNextScene}>Next →</button>}
         </div>
       </div>
 
-      {/* Scene text */}
-      <div style={{ marginBottom: '24px' }}>
-        <h4 style={{ marginBottom: '8px', fontSize: '14px', fontWeight: 'bold', color: 'var(--text-muted)' }}>
-          Scene Text
-        </h4>
-        {editing ? (
-          <div>
-            <textarea
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                padding: '12px',
-                border: '1px solid var(--border)',
-                borderRadius: '4px',
-                background: 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-              }}
-            />
-            <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
-              <button className="btn btn-primary" onClick={handleSaveEdit}>
-                Save
-              </button>
-              <button className="btn btn-secondary" onClick={() => setEditing(false)}>
-                Cancel
-              </button>
-            </div>
+      {/* Scene text + Edit */}
+      {editing ? (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px' }}>
+          <textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            style={{ flex: 1, minHeight: '80px', padding: '10px', fontSize: '15px', border: '1px solid var(--border)', borderRadius: '4px' }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <button className="btn btn-primary" onClick={handleSaveEdit}>Save</button>
+            <button className="btn btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
           </div>
-        ) : (
-          <p
-            style={{
-              margin: 0,
-              padding: '16px',
-              background: 'var(--bg-surface-alt)',
-              borderRadius: '8px',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '12px' }}>
+          <p style={{ flex: 1, margin: 0, padding: '10px 12px', background: 'var(--bg-surface-alt)', borderRadius: '6px', fontSize: '15px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             {scene.text}
           </p>
-        )}
-        {!editing && (
-          <button
-            className="btn btn-secondary"
-            onClick={() => setEditing(true)}
-            style={{ marginTop: '10px', fontSize: '13px' }}
-          >
-            Edit
-          </button>
-        )}
-      </div>
-
-      {/* Visual description section */}
-      <div
-        style={{
-          marginBottom: '24px',
-          padding: '20px',
-          background: 'var(--bg-surface-alt)',
-          borderRadius: '8px',
-          border: '1px solid var(--info)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '12px' }}>
-          <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 'bold' }}>Visual Description</h4>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {visualDescriptions.length > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => handleNavigateDescription('prev')}
-                  disabled={currentDescriptionIndex >= visualDescriptions.length - 1}
-                  style={{ fontSize: '14px', padding: '4px 8px' }}
-                  title="Older description"
-                >
-                  ←
-                </button>
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)', minWidth: '60px', textAlign: 'center' }}>
-                  {currentDescriptionIndex + 1} / {visualDescriptions.length}
-                </span>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => handleNavigateDescription('next')}
-                  disabled={currentDescriptionIndex <= 0}
-                  style={{ fontSize: '14px', padding: '4px 8px' }}
-                  title="Newer description"
-                >
-                  →
-                </button>
-              </div>
-            )}
-            <button
-              className="btn btn-info"
-              onClick={handleGenerateVisualDescription}
-              disabled={generatingDescription}
-              style={{ backgroundColor: generatingDescription ? '#ccc' : undefined }}
-            >
-              {generatingDescription ? 'Generating...' : 'Generate New'}
-            </button>
-          </div>
-        </div>
-        {displayDescription ? (
-          <div>
-            <p style={{ margin: 0, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.6 }}>
-              {displayDescription}
-            </p>
-            {currentDesc && (
-              <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: '8px', fontSize: '12px' }}>
-                Generated {new Date(currentDesc.created_at).toLocaleString()}
-              </small>
-            )}
-          </div>
-        ) : (
-          <p style={{ color: 'var(--text-muted)', margin: 0 }}>
-            No visual description yet. Generate one to create images for this scene.
-          </p>
-        )}
-      </div>
-
-      {/* Options: Scene style, Visual style, Reference image - always visible */}
-      <div style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 'bold' }}>
-            Scene Style
-          </label>
-          <select
-            value={selectedSceneStyle || ''}
-            onChange={(e) => handleSceneStyleChange(e.target.value)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
-              border: '1px solid var(--border)',
-              minWidth: '240px',
-              background: 'var(--bg-surface)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            <option value="">None (default)</option>
-            {sceneStyles.map((style) => (
-              <option key={style.id} value={style.id}>
-                {style.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 'bold' }}>
-            Visual Style (optional)
-          </label>
-          <select
-            value={selectedStyle || ''}
-            onChange={(e) => setSelectedStyle(e.target.value ? parseInt(e.target.value) : null)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
-              border: '1px solid var(--border)',
-              minWidth: '240px',
-              background: 'var(--bg-surface)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            <option value="">None (default)</option>
-            {visualStyles.map((style) => (
-              <option key={style.id} value={style.id}>
-                {style.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 'bold' }}>
-            Reference Image (optional)
-          </label>
-          <select
-            value={selectedImageRef || ''}
-            onChange={(e) => handleImageReferenceChange(e.target.value)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: '4px',
-              border: '1px solid var(--border)',
-              minWidth: '240px',
-              background: 'var(--bg-surface)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            <option value="">None</option>
-            {imageReferences.map((ref) => (
-              <option key={ref.id} value={ref.id}>
-                {ref.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Generate image button */}
-      {scene.status !== 'approved' && (
-        <div style={{ marginBottom: '24px' }}>
-          <button
-            className="btn btn-success"
-            onClick={handleApprove}
-            disabled={!scene.visual_description}
-            style={{
-              backgroundColor: !scene.visual_description ? '#ccc' : undefined,
-              cursor: !scene.visual_description ? 'not-allowed' : 'pointer',
-            }}
-            title={!scene.visual_description ? 'Generate a visual description first' : ''}
-          >
-            Approve & Generate Image
-          </button>
+          <button className="btn btn-secondary" onClick={() => setEditing(true)}>Edit</button>
         </div>
       )}
 
-      {/* Generated images for this scene */}
-      <div>
-        <h4 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: 'bold' }}>Generated Images</h4>
-        {loadingImages ? (
-          <p style={{ color: 'var(--text-muted)' }}>Loading images...</p>
-        ) : images.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No images generated yet...</p>
-        ) : (
-          <div className="image-gallery" style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-            {images.map((image) => {
-              const imageUrl = getImageUrl(image)
-              const isApproved = image.status === 'approved'
-              const isRejected = image.status === 'rejected'
-              return (
-                <div
-                  key={image.id}
-                  className={`image-item ${isApproved ? 'approved' : ''} ${isRejected ? 'rejected' : ''}`}
-                  style={{ maxWidth: '320px' }}
-                >
-                  {imageUrl ? (
-                    <img src={imageUrl} alt={`Scene ${scene.order}`} style={{ width: '100%', borderRadius: '8px' }} />
-                  ) : (
-                    <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-hover)', borderRadius: '8px' }}>
-                      Image loading...
-                    </div>
-                  )}
-                  <div style={{ marginTop: '10px' }}>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>{image.prompt}</p>
-                    <span className={`status-badge status-${image.status}`}>{image.status}</span>
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
-                      {!isApproved && (
-                        <button
-                          className="btn btn-success"
-                          onClick={() => handleApproveImage(image.id)}
-                          style={{ fontSize: '12px', padding: '5px 10px' }}
-                        >
-                          Approve
-                        </button>
-                      )}
-                      {!isRejected && (
-                        <button
-                          className="btn btn-danger"
-                          onClick={() => handleRejectImage(image.id)}
-                          style={{ fontSize: '12px', padding: '5px 10px' }}
-                        >
-                          Reject & Regenerate
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+      {/* Two columns: Left = controls + description | Right = image + other versions */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 520px', gap: '24px', alignItems: 'start' }}>
+        {/* Left column */}
+        <div>
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Scene:</label>
+              <select value={selectedSceneStyle || ''} onChange={(e) => handleSceneStyleChange(e.target.value)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '130px' }}>
+                <option value="">None</option>
+                {sceneStyles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Visual:</label>
+              <select value={selectedStyle || ''} onChange={(e) => setSelectedStyle(e.target.value ? parseInt(e.target.value) : null)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '130px' }}>
+                <option value="">None</option>
+                {visualStyles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Ref:</label>
+              <select value={selectedImageRef || ''} onChange={(e) => handleImageReferenceChange(e.target.value)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '110px' }}>
+                <option value="">None</option>
+                {imageReferences.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-info" onClick={handleGenerateVisualDescription} disabled={generatingDescription}>
+              {generatingDescription ? '...' : 'Generate Scene Description'}
+            </button>
           </div>
-        )}
+
+          {displayDescription ? (
+            <div style={{ padding: '10px 12px', background: 'var(--bg-surface-alt)', borderRadius: '6px', border: '1px solid var(--info)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Scene Description</span>
+                {visualDescriptions.length > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <button className="btn btn-secondary" onClick={() => handleNavigateDescription('prev')} disabled={currentDescriptionIndex >= visualDescriptions.length - 1}>←</button>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)', minWidth: '40px', textAlign: 'center' }}>{currentDescriptionIndex + 1}/{visualDescriptions.length}</span>
+                    <button className="btn btn-secondary" onClick={() => handleNavigateDescription('next')} disabled={currentDescriptionIndex <= 0}>→</button>
+                  </div>
+                )}
+              </div>
+              <p style={{ margin: 0, fontSize: '15px', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{displayDescription}</p>
+            </div>
+          ) : (
+            <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>No scene description. Generate one to create images.</p>
+          )}
+        </div>
+
+        {/* Right column: Model + Generate + Main image + Other versions */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Model:</label>
+              <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '200px' }}>
+                {IMAGE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-success" onClick={handleGenerateImage} disabled={!scene.visual_description} style={{ opacity: !scene.visual_description ? 0.6 : 1 }} title={!scene.visual_description ? 'Generate scene description first' : ''}>
+              Generate image
+            </button>
+          </div>
+          <div style={{ borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-hover)' }}>
+            {loadingImages ? (
+              <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>Loading...</div>
+            ) : mainImage ? (
+              <img src={getImageUrl(mainImage)} alt={`Scene ${scene.order}`} style={{ width: '100%', display: 'block' }} />
+            ) : (
+              <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>No image</div>
+            )}
+          </div>
+          {/* Other versions - directly under main image */}
+          {images.length > 1 && (
+            <div style={{ paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold' }}>Other versions</h4>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {images.filter(img => img.id !== mainImage.id).map((image) => {
+                  const imageUrl = getImageUrl(image)
+                  return (
+                    <div key={image.id} style={{ width: '100px', flexShrink: 0 }}>
+                      {imageUrl && <img src={imageUrl} alt="" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '4px' }} />}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

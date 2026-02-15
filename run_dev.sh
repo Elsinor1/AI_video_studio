@@ -89,16 +89,23 @@ echo "Frontend: http://localhost:3000"
 echo ""
 echo "Press Ctrl+C to stop all services"
 
-# Cleanup function
+# Cleanup function - stop in reverse order to reduce multiprocessing spawn errors on Windows
+# Note: You may see "OSError: [WinError 87] Parametr není správný" when stopping - this is harmless.
+# It occurs when uvicorn's --reload spawns a child process that outlives its parent. Safe to ignore.
 cleanup() {
     echo ""
     echo "Stopping services..."
-    kill $BACKEND_PID $CELERY_PID $FRONTEND_PID 2>/dev/null
+    kill -TERM $FRONTEND_PID 2>/dev/null
+    kill -TERM $CELERY_PID 2>/dev/null
+    kill -TERM $BACKEND_PID 2>/dev/null
+    sleep 3
+    kill -9 $FRONTEND_PID $CELERY_PID $BACKEND_PID 2>/dev/null
+    sleep 2
     if [ -n "$REDIS_CONTAINER" ]; then
         echo "Stopping Redis container..."
-        docker stop redis 2>/dev/null
+        docker stop redis 2>/dev/null || true
     fi
-    exit
+    exit 0
 }
 
 # Wait for interrupt

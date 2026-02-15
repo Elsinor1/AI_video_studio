@@ -45,3 +45,9 @@ frontend/build/
 .DS_Store
 Thumbs.db
 
+# Windows reserved device names (git add * can fail when these exist)
+nul
+CON
+PRN
+AUX
+

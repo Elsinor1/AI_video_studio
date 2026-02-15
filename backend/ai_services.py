@@ -197,9 +197,9 @@ def segment_script(script_content: str) -> List[Dict[str, str]]:
         return [{"text": p, "order": i + 1} for i, p in enumerate(paragraphs)]
 
 
-def generate_visual_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None) -> str:
+def generate_scene_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None) -> str:
     """
-    Generate a detailed visual description of a scene based on its text and optional scene style.
+    Generate a detailed scene description of a scene based on its text and optional scene style.
     Returns a description like "main character is looking down and weeping"
     """
     style_instruction = ""
@@ -230,13 +230,13 @@ def generate_visual_description(scene_text: str, scene_style_description: str = 
             # If JSON parsing fails, use params as-is
             style_instruction = f"\n\nScene Style: {scene_style_params}"
     
-    prompt = f"""Analyze the following scene text and generate a detailed, natural visual description of what should be shown.
+    prompt = f"""Analyze the following scene text and generate a detailed, natural scene description of what should be shown.
 
     Scene Text:
     {scene_text}
     {style_instruction if style_instruction else ''}
 
-    Generate a vivid, flowing visual description written structured with labels. The description should include:
+    Generate a vivid, flowing scene description written structured with labels. The description should include:
 
     - Who is in the scene and what they're doing (characters, their actions, expressions, emotions)
     - The setting and environment (where the scene takes place, key objects, atmosphere)
@@ -245,34 +245,43 @@ def generate_visual_description(scene_text: str, scene_style_description: str = 
     - Key visual elements that should be emphasized
 
 
-    Return only the visual description, no explanation or additional text. Keep it focused and cinematic.
+    Return only the scene description, no explanation or additional text. 
     Example of well formatted output:
 
-    Characters: Main character and subtle environmental influence,  shadow of another person or gentle hint of characters boss present
-    Scene description: The main character sits hunched over a cluttered desk in a dimly lit tech lab, his face illuminated by the focused glow of a single desk lamp. Blueprints cover the walls behind him, and equations are scribbled on a chalkboard in the background. His fingers move deftly across a project model, his expression showing deep concentration mixed with occasional flashes of excitement. Tears of both frustration and joy well up in his eyes, which he quickly wipes away. a mix of struggle and breakthrough, with long shadows cast by the focused lighting creating a cinematic, emotional atmosphere
-    Surrounding: Workplace, desk or office environment 
-    Main emotion: Calm, attentiveness The atmosphere: Warm and contemplative, melancholic yet gentle
-    Lighting and mood: Low-key, cinematic, soft shadows, gentle falloff.
-    camera angle/perspective: Medium shot
+    - Characters: Main character and subtle environmental influence,  shadow of another person or gentle hint of characters boss present
+    - Scene description: The main character sits hunched over a cluttered desk in a dimly lit tech lab, his face illuminated by the focused glow of a single desk lamp. Blueprints cover the walls behind him, and equations are scribbled on a chalkboard in the background. His fingers move deftly across a project model, his expression showing deep concentration mixed with occasional flashes of excitement. Tears of both frustration and joy well up in his eyes, which he quickly wipes away. a mix of struggle and breakthrough, with long shadows cast by the focused lighting creating a cinematic, emotional atmosphere
+    - Surrounding: Workplace, desk or office environment 
+    - Main emotion: Calm, attentiveness The atmosphere: Warm and contemplative, melancholic yet gentle
+    - Lighting and mood: Low-key, cinematic, soft shadows, gentle falloff.
+    - Camera angle/perspective: Medium shot
     """
 
     try:
+        print("\n" + "=" * 60)
+        print("SCENE DESCRIPTION GENERATION PROMPT:")
+        print("=" * 60)
+        print("System:", "You are a visual director. Generate concise, vivid scene descriptions for video scenes.")
+        print("-" * 60)
+        print("User prompt:")
+        print(prompt)
+        print("=" * 60 + "\n")
+
         client = get_openai_client()
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a visual director. Generate concise, vivid visual descriptions for video scenes.",
+                    "content": "You are a visual director. Generate concise, vivid scene descriptions for video scenes.",
                 },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
         )
-
+        print(response.choices[0].message.content.strip())
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Error generating visual description: {e}")
+        print(f"Error generating scene description: {e}")
         # Fallback: return a simple description
         return f"Visual scene based on: {scene_text[:100]}..."
 
@@ -319,7 +328,7 @@ def generate_image_prompt(scene_text: str, visual_style_description: str = None,
     - Incorporate the visual style description fully into the scene
     - Be visual and descriptive
     - Include all style elements, mood, atmosphere, lighting, and color palette from the visual style
-    - Be suitable for AI image generation (DALL-E, Stable Diffusion, Leonardo.ai, etc.)
+    - Be suitable for AI image generation Nano Banana
 
     Return only the final prompt, no explanation."""
 
@@ -344,10 +353,11 @@ def generate_image_prompt(scene_text: str, visual_style_description: str = None,
         return f"Cinematic scene: {scene_text}"
 
 
-def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_path: Optional[str] = None) -> str:
+def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_path: Optional[str] = None, model_id: Optional[str] = None) -> str:
     """
     Generate image using Leonardo.ai API.
     If reference_image_path is provided, uploads it and uses it as image reference for Leonardo.
+    If model_id is provided, uses that model instead of the default.
     Returns file path to the saved image.
     """
     import time
@@ -379,6 +389,10 @@ def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_
         init_resp.raise_for_status()
         init_data = init_resp.json()
         upload_info = init_data.get("uploadInitImage") or init_data.get("upload_init_image", {})
+        while isinstance(upload_info, list) and upload_info:
+            upload_info = upload_info[0]
+        if not isinstance(upload_info, dict):
+            upload_info = {}
         fields = json.loads(upload_info.get("fields", "{}"))
         upload_url = upload_info.get("url", "")
         image_id = upload_info.get("id", "")
@@ -387,36 +401,95 @@ def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_
             upload_resp = requests.post(upload_url, data=fields, files=files, timeout=60)
         print("Leonardo: Reference image uploaded: %s" % upload_resp.status_code)
 
-    # Build v2 generation parameters
-    parameters = {
-        "width": 1024,
-        "height": 1024,
-        "prompt": prompt,
-        "quantity": 1,
-        "prompt_enhance": "OFF",
-    }
-    if image_id:
-        parameters["guidances"] = {
-            "image_reference": [
-                {"image": {"id": image_id, "type": "UPLOADED"}, "strength": "MID"}
-            ]
-        }
+    # Determine the model and which API version to use
+    effective_model = model_id or os.getenv("LEONARDO_MODEL_ID", "6bef9f1b-6297-4702-9b67-0be5ca70c96f")
 
-    payload = {
-        "model": os.getenv("LEONARDO_MODEL_ID", "gemini-2.5-flash-preview-05-20"),
-        "parameters": parameters,
-        "public": False,
-    }
+    # v2 models use string names (not UUIDs) — e.g. "gemini-2.5-flash-image", "gemini-image-2"
+    V2_MODELS = {"gemini-2.5-flash-image", "gemini-image-2"}
+    is_v2 = effective_model in V2_MODELS
+
+    if is_v2:
+        # Build v2 generation payload (Nano Banana / Nano Banana Pro)
+        parameters = {
+            "width": 1024,
+            "height": 1024,
+            "prompt": prompt,
+            "quantity": 1,
+            "prompt_enhance": "OFF",
+        }
+        if image_id:
+            parameters["guidances"] = {
+                "image_reference": [
+                    {"image": {"id": image_id, "type": "UPLOADED"}, "strength": "MID"}
+                ]
+            }
+        payload = {
+            "model": effective_model,
+            "parameters": parameters,
+            "public": False,
+        }
+        api_url = "https://cloud.leonardo.ai/api/rest/v2/generations"
+    else:
+        # Build v1 generation payload (legacy models with UUID IDs)
+        payload = {
+            "prompt": prompt,
+            "modelId": effective_model,
+            "width": 1024,
+            "height": 1024,
+            "num_images": 1,
+            "alchemy": True,
+            "public": False,
+        }
+        if image_id:
+            payload["init_image_id"] = image_id
+            payload["init_strength"] = 0.5
+        api_url = "https://cloud.leonardo.ai/api/rest/v1/generations"
+
+    print("Leonardo: Using %s API with model: %s" % ("v2" if is_v2 else "v1", effective_model))
+    print("Leonardo: Prompt (first 200 chars): %s" % prompt[:200])
 
     gen_resp = requests.post(
-        "https://cloud.leonardo.ai/api/rest/v2/generations",
+        api_url,
         json=payload,
         headers=headers,
         timeout=30,
     )
-    gen_resp.raise_for_status()
+
+    # Log the full response before raising
+    print("Leonardo: Generation response status: %s" % gen_resp.status_code)
+    print("Leonardo: Generation response body: %s" % gen_resp.text[:1000])
+
+    if gen_resp.status_code != 200:
+        raise ValueError("Leonardo API returned %s: %s" % (gen_resp.status_code, gen_resp.text[:500]))
+
     gen_data = gen_resp.json()
-    generation_id = (gen_data.get("generate") or {}).get("generationId") or gen_data.get("generationId")
+
+    if isinstance(gen_data, list):
+        gen_data = gen_data[0] if gen_data else {}
+
+    # Extract generationId — different response formats for v1 vs v2
+    generation_id = None
+    if is_v2:
+        # v2 response format: {"generate": {"generationId": "..."}} or GraphQL error
+        if isinstance(gen_data, dict) and "extensions" in gen_data:
+            ext = gen_data["extensions"]
+            details = ext.get("details", {}) if isinstance(ext, dict) else {}
+            err_msg = details.get("message", gen_data.get("message", "Unknown error"))
+            errors = details.get("errors", [])
+            if errors and isinstance(errors, list) and isinstance(errors[0], dict):
+                err_msg = errors[0].get("message", err_msg)
+            raise ValueError("Leonardo v2 API error: %s" % err_msg)
+        gen_obj = gen_data.get("generate", {}) if isinstance(gen_data, dict) else {}
+        if isinstance(gen_obj, list):
+            gen_obj = gen_obj[0] if gen_obj else {}
+        generation_id = (gen_obj.get("generationId") if isinstance(gen_obj, dict) else None) or (gen_data.get("generationId") if isinstance(gen_data, dict) else None)
+    else:
+        # v1 response format: {"sdGenerationJob": {"generationId": "..."}}
+        sd_job = gen_data.get("sdGenerationJob", {}) if isinstance(gen_data, dict) else {}
+        if isinstance(sd_job, list):
+            sd_job = sd_job[0] if sd_job else {}
+        generation_id = (sd_job.get("generationId") if isinstance(sd_job, dict) else None) or (gen_data.get("generationId") if isinstance(gen_data, dict) else None)
+
     if not generation_id:
         raise ValueError("Leonardo: No generationId in response: %s" % gen_data)
 
@@ -428,18 +501,49 @@ def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_
         time.sleep(5)
         status_resp = requests.get(status_url, headers=headers, timeout=30)
         status_resp.raise_for_status()
-        status_data = status_resp.json()
-        generated_images = []
-        if "generations_by_pk" in status_data:
-            generated_images = status_data["generations_by_pk"].get("generated_images", [])
-        elif "generated_images" in status_data:
-            generated_images = status_data["generated_images"]
-        elif "generation" in status_data:
-            generated_images = status_data["generation"].get("generated_images", [])
+        raw_data = status_resp.json()
+        try:
+            status_data = raw_data
+            if isinstance(status_data, dict) and "data" in status_data:
+                status_data = status_data["data"]
+            if isinstance(status_data, list):
+                status_data = status_data[0] if status_data else {}
+            if not isinstance(status_data, dict):
+                status_data = {}
+            generated_images = []
+            gen_pk = status_data.get("generations_by_pk")
+            gen_obj = status_data.get("generation")
+            if gen_pk is not None:
+                if isinstance(gen_pk, list):
+                    gen_pk = gen_pk[0] if gen_pk else {}
+                generated_images = gen_pk.get("generated_images", []) if isinstance(gen_pk, dict) else []
+            elif "generated_images" in status_data:
+                gi = status_data["generated_images"]
+                if isinstance(gi, list):
+                    generated_images = gi
+                elif isinstance(gi, dict) and "urls" in gi:
+                    generated_images = [{"url": u} for u in gi.get("urls", [])]
+                else:
+                    generated_images = []
+            elif gen_obj is not None:
+                if isinstance(gen_obj, list):
+                    gen_obj = gen_obj[0] if gen_obj else {}
+                generated_images = gen_obj.get("generated_images", []) if isinstance(gen_obj, dict) else []
+        except Exception as e:
+            import traceback
+            print("Leonardo: Error parsing status response. Raw type: %s" % type(raw_data))
+            print("Leonardo: Raw response (truncated): %s" % str(raw_data)[:800])
+            print("Leonardo: Traceback: %s" % traceback.format_exc())
+            raise
 
         if generated_images:
             first = generated_images[0]
-            image_url = first.get("url") or first.get("imageUrl")
+            if isinstance(first, list):
+                first = first[0] if first else {}
+            if isinstance(first, dict):
+                image_url = first.get("url") or first.get("imageUrl")
+            else:
+                image_url = first if isinstance(first, str) else None
             if image_url:
                 img_resp = requests.get(image_url, timeout=60)
                 img_resp.raise_for_status()
@@ -449,9 +553,22 @@ def generate_image_with_leonardo(prompt: str, output_path: str, reference_image_
                 print("Leonardo: Image saved to %s" % output_path)
                 return output_path
 
-        status = (status_data.get("generations_by_pk") or {}).get("status") or status_data.get("status")
+        status = None
+        _gen_pk = status_data.get("generations_by_pk")
+        if isinstance(_gen_pk, dict):
+            status = _gen_pk.get("status")
+        elif isinstance(_gen_pk, list) and _gen_pk:
+            status = _gen_pk[0].get("status") if isinstance(_gen_pk[0], dict) else None
+        if not status:
+            status = status_data.get("status")
         if status and str(status).lower() in ("failed", "error"):
-            err = (status_data.get("generations_by_pk") or {}).get("error") or status_data.get("error", "Unknown error")
+            err = None
+            if isinstance(_gen_pk, dict):
+                err = _gen_pk.get("error")
+            elif isinstance(_gen_pk, list) and _gen_pk and isinstance(_gen_pk[0], dict):
+                err = _gen_pk[0].get("error")
+            if not err:
+                err = status_data.get("error", "Unknown error")
             raise Exception("Leonardo generation failed: %s" % err)
         if attempt % 6 == 0:
             print("Leonardo: Waiting for generation... (%ss)" % (attempt * 5))

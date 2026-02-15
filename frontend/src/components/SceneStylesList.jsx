@@ -160,7 +160,7 @@ function SceneStylesList() {
               </button>
             </div>
             <small style={{ color: 'var(--text-muted)' }}>
-              Describe the scene style including camera angles, lighting, mood, and visual approach. This will be used when generating visual descriptions for scenes.
+              Describe the scene style including camera angles, lighting, mood, and visual approach. This will be used when generating scene descriptions for scenes.
             </small>
           </div>
           <div style={{ marginBottom: '10px' }}>

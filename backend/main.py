@@ -242,7 +242,7 @@ def update_scene(scene_id: int, scene: schemas.SceneUpdate, db: Session = Depend
 
 @app.post("/api/scenes/{scene_id}/generate-visual-description")
 def generate_scene_visual_description(scene_id: int, db: Session = Depends(get_db)):
-    """Generate a visual description for a scene using AI"""
+    """Generate a scene description for a scene using AI"""
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -256,9 +256,9 @@ def generate_scene_visual_description(scene_id: int, db: Session = Depends(get_d
             scene_style_description = scene_style.description
             scene_style_params = scene_style.parameters
     
-    # Generate visual description using AI with scene style
+    # Generate scene description using AI with scene style
     from . import ai_services
-    visual_description = ai_services.generate_visual_description(
+    visual_description = ai_services.generate_scene_description(
         scene.text, 
         scene_style_description=scene_style_description,
         scene_style_params=scene_style_params
@@ -280,12 +280,12 @@ def generate_scene_visual_description(scene_id: int, db: Session = Depends(get_d
     db.commit()
     db.refresh(scene)
     
-    return {"message": "Visual description generated", "visual_description": visual_description, "visual_description_id": visual_desc.id}
+    return {"message": "Scene description generated", "visual_description": visual_description, "visual_description_id": visual_desc.id}
 
 
 @app.get("/api/scenes/{scene_id}/visual-descriptions", response_model=list[schemas.VisualDescription])
 def get_scene_visual_descriptions(scene_id: int, db: Session = Depends(get_db)):
-    """Get all visual descriptions for a scene"""
+    """Get all scene descriptions for a scene"""
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
@@ -294,28 +294,25 @@ def get_scene_visual_descriptions(scene_id: int, db: Session = Depends(get_db)):
 
 @app.put("/api/scenes/{scene_id}/visual-descriptions/{visual_description_id}/set-current")
 def set_current_visual_description(scene_id: int, visual_description_id: int, db: Session = Depends(get_db)):
-    """Set a specific visual description as the current one for a scene"""
+    """Set a specific scene description as the current one for a scene"""
     updated = crud.update_scene_current_description(db=db, scene_id=scene_id, visual_description_id=visual_description_id)
     if not updated:
-        raise HTTPException(status_code=404, detail="Scene or visual description not found")
-    return {"message": "Current visual description updated", "visual_description": updated.visual_description}
+        raise HTTPException(status_code=404, detail="Scene or scene description not found")
+    return {"message": "Current scene description updated", "visual_description": updated.visual_description}
 
 
-@app.post("/api/scenes/{scene_id}/approve")
-def approve_scene(scene_id: int, visual_style_id: int = None, db: Session = Depends(get_db)):
-    """Approve scene and trigger image generation"""
+@app.post("/api/scenes/{scene_id}/generate-image")
+def generate_scene_image(scene_id: int, visual_style_id: int = None, model_id: str = None, db: Session = Depends(get_db)):
+    """Trigger image generation for a scene with optional model selection"""
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
     
-    scene.status = "approved"
-    db.commit()
-    
-    # Trigger image generation with visual style
+    # Trigger image generation with visual style and model
     from .tasks import generate_image_task
-    generate_image_task.delay(scene_id, visual_style_id)
+    generate_image_task.delay(scene_id, visual_style_id, model_id)
     
-    return {"message": "Scene approved, image generation started"}
+    return {"message": "Image generation started"}
 
 
 # Image endpoints
