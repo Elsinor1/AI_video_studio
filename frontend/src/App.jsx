@@ -90,7 +90,6 @@ function WorkflowBar() {
 }
 
 function App() {
-  const navigate = useNavigate()
   const [projects, setProjects] = useState([])
   const [theme, setTheme] = useState(() => {
     try {
@@ -122,23 +121,11 @@ function App() {
     }
   }
 
-  const location = useLocation()
-  const sceneDetailMatch = location.pathname.match(/\/projects\/(\d+)\/scenes\/(\d+)/)
-
   return (
     <div>
       <NavigationBar theme={theme} onToggleTheme={toggleTheme} />
       <div className="container">
         <WorkflowBar />
-        {sceneDetailMatch && (
-          <div className="workflow-breadcrumb">
-            <button type="button" className="workflow-breadcrumb-link" onClick={() => navigate(`/projects/${sceneDetailMatch[1]}/scenes`)}>
-              Scenes
-            </button>
-            <span className="workflow-breadcrumb-sep">›</span>
-            <span className="workflow-breadcrumb-current">Scene detail</span>
-          </div>
-        )}
 
         <Routes>
         <Route path="/" element={<ProjectListPage projects={projects} onProjectsChange={loadProjects} />} />

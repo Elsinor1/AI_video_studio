@@ -87,31 +87,3 @@
   color: var(--success);
   opacity: 0.8;
 }
-
-/* Breadcrumb when on scene detail page */
-.workflow-breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0 16px 0;
-  font-size: 14px;
-  color: var(--text-muted);
-}
-.workflow-breadcrumb-link {
-  background: none;
-  border: none;
-  color: var(--primary);
-  cursor: pointer;
-  padding: 0;
-  font-size: inherit;
-  text-decoration: underline;
-}
-.workflow-breadcrumb-link:hover {
-  color: var(--primary-hover);
-}
-.workflow-breadcrumb-sep {
-  opacity: 0.6;
-}
-.workflow-breadcrumb-current {
-  color: var(--text-primary);
-}

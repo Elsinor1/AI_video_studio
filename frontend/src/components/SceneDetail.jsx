@@ -31,6 +31,9 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const [images, setImages] = useState([])
   const [loadingImages, setLoadingImages] = useState(true)
   const [selectedModel, setSelectedModel] = useState('')
+  const [generatingImage, setGeneratingImage] = useState(false)
+  const [enlargedImageIndex, setEnlargedImageIndex] = useState(null)
+  const [displayedImageIndex, setDisplayedImageIndex] = useState(0)
 
   useEffect(() => {
     loadData()
@@ -39,6 +42,10 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     }, 5000)
     return () => clearInterval(imgInterval)
   }, [scriptId, sceneId])
+
+  useEffect(() => {
+    setDisplayedImageIndex(0)
+  }, [images.length])
 
   // Load presets (scene styles, visual styles, image references) on mount
   useEffect(() => {
@@ -211,6 +218,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
 
   const handleGenerateImage = async () => {
     if (!scene) return
+    setGeneratingImage(true)
     try {
       const params = {}
       if (selectedStyle) params.visual_style_id = selectedStyle
@@ -221,6 +229,8 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     } catch (error) {
       console.error('Error generating image:', error)
       alert('Error generating image')
+    } finally {
+      setGeneratingImage(false)
     }
   }
 
@@ -248,6 +258,8 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const currentDesc = getCurrentDescription()
   const displayDescription = currentDesc?.description || scene.visual_description
   const mainImage = images[0]
+  const displayedImage = images[displayedImageIndex] ?? images[0]
+  const hasMultipleImages = images.length > 1
 
   return (
     <div className="card" style={{ padding: '16px' }}>
@@ -285,8 +297,8 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
         </div>
       )}
 
-      {/* Two columns: Left = controls + description | Right = image + other versions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 520px', gap: '24px', alignItems: 'start' }}>
+      {/* Two columns: Left = controls + description | Right = image (520px) + other versions (100px) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 632px', gap: '24px', alignItems: 'start' }}>
         {/* Left column */}
         <div>
           <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -304,16 +316,18 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
                 {visualStyles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Ref:</label>
-              <select value={selectedImageRef || ''} onChange={(e) => handleImageReferenceChange(e.target.value)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '110px' }}>
-                <option value="">None</option>
-                {imageReferences.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <label style={{ fontSize: '18px', fontWeight: 'bold' }}>Ref:</label>
+                <select value={selectedImageRef || ''} onChange={(e) => handleImageReferenceChange(e.target.value)} style={{ padding: '5px 10px', fontSize: '14px', borderRadius: '4px', border: '1px solid var(--border)', minWidth: '110px' }}>
+                  <option value="">None</option>
+                  {imageReferences.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <button className="btn btn-info" onClick={handleGenerateVisualDescription} disabled={generatingDescription}>
+                {generatingDescription ? '...' : 'Generate Scene Description'}
+              </button>
             </div>
-            <button className="btn btn-info" onClick={handleGenerateVisualDescription} disabled={generatingDescription}>
-              {generatingDescription ? '...' : 'Generate Scene Description'}
-            </button>
           </div>
 
           {displayDescription ? (
@@ -335,7 +349,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
           )}
         </div>
 
-        {/* Right column: Model + Generate + Main image + Other versions */}
+        {/* Right column: Model + Generate, then Main image | Other versions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -344,37 +358,180 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
                 {IMAGE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </div>
-            <button className="btn btn-success" onClick={handleGenerateImage} disabled={!scene.visual_description} style={{ opacity: !scene.visual_description ? 0.6 : 1 }} title={!scene.visual_description ? 'Generate scene description first' : ''}>
-              Generate image
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button className="btn btn-success" onClick={handleGenerateImage} disabled={!scene.visual_description || generatingImage} style={{ opacity: !scene.visual_description ? 0.6 : 1 }} title={!scene.visual_description ? 'Generate scene description first' : ''}>
+                Generate image
+              </button>
+              {generatingImage && <span className="spinner" aria-hidden="true" />}
+            </div>
           </div>
-          <div style={{ borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-hover)' }}>
-            {loadingImages ? (
-              <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>Loading...</div>
-            ) : mainImage ? (
-              <img src={getImageUrl(mainImage)} alt={`Scene ${scene.order}`} style={{ width: '100%', display: 'block' }} />
-            ) : (
-              <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>No image</div>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', width: 'fit-content' }}>
+            {/* Main image with navigation arrows - click to enlarge */}
+            <div style={{ position: 'relative', width: '520px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-hover)', cursor: displayedImage ? 'pointer' : 'default' }} onClick={() => displayedImage && getImageUrl(displayedImage) && setEnlargedImageIndex(displayedImageIndex)}>
+              {loadingImages ? (
+                <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>Loading...</div>
+              ) : displayedImage ? (
+                <img src={getImageUrl(displayedImage)} alt={`Scene ${scene.order}`} style={{ width: '100%', display: 'block' }} />
+              ) : (
+                <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>No image</div>
+              )}
+              {hasMultipleImages && (
+                <>
+                  {displayedImageIndex > 0 && (
+                    <button
+                      type="button"
+                      className="nav-arrow"
+                      onClick={(e) => { e.stopPropagation(); setDisplayedImageIndex(displayedImageIndex - 1) }}
+                      style={{
+                        position: 'absolute',
+                        left: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        border: '2px solid rgba(255,255,255,0.9)',
+                        background: 'rgba(0,0,0,0.5)',
+                        color: 'white',
+                        fontSize: '20px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title="Previous image"
+                    >
+                      ←
+                    </button>
+                  )}
+                  {displayedImageIndex < images.length - 1 && (
+                    <button
+                      type="button"
+                      className="nav-arrow"
+                      onClick={(e) => { e.stopPropagation(); setDisplayedImageIndex(displayedImageIndex + 1) }}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        border: '2px solid rgba(255,255,255,0.9)',
+                        background: 'rgba(0,0,0,0.5)',
+                        color: 'white',
+                        fontSize: '20px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title="Next image"
+                    >
+                      →
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            {/* Other versions - to the right of main image, click to enlarge */}
+            {images.length > 1 && (
+              <div style={{ flexShrink: 0, width: '100px' }}>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold' }}>Other</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {images.filter((_, i) => i !== displayedImageIndex).map((image) => {
+                    const imageUrl = getImageUrl(image)
+                    const idx = images.findIndex(img => img.id === image.id)
+                    return (
+                      <div key={image.id} style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (imageUrl) { setDisplayedImageIndex(idx); setEnlargedImageIndex(idx) } }}>
+                        {imageUrl && <img src={imageUrl} alt="" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '4px' }} />}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             )}
           </div>
-          {/* Other versions - directly under main image */}
-          {images.length > 1 && (
-            <div style={{ paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 'bold' }}>Other versions</h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                {images.filter(img => img.id !== mainImage.id).map((image) => {
-                  const imageUrl = getImageUrl(image)
-                  return (
-                    <div key={image.id} style={{ width: '100px', flexShrink: 0 }}>
-                      {imageUrl && <img src={imageUrl} alt="" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '4px' }} />}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Enlarged image overlay with navigation arrows */}
+      {enlargedImageIndex !== null && images[enlargedImageIndex] && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            cursor: 'pointer',
+          }}
+          onClick={() => setEnlargedImageIndex(null)}
+        >
+          {enlargedImageIndex > 0 && (
+            <button
+              type="button"
+              className="nav-arrow"
+              onClick={(e) => { e.stopPropagation(); setEnlargedImageIndex(enlargedImageIndex - 1) }}
+              style={{
+                position: 'absolute',
+                left: '20px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.8)',
+                background: 'rgba(0,0,0,0.5)',
+                color: 'white',
+                fontSize: '24px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title="Previous image"
+            >
+              ←
+            </button>
+          )}
+          {enlargedImageIndex < images.length - 1 && (
+            <button
+              type="button"
+              className="nav-arrow"
+              onClick={(e) => { e.stopPropagation(); setEnlargedImageIndex(enlargedImageIndex + 1) }}
+              style={{
+                position: 'absolute',
+                right: '20px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.8)',
+                background: 'rgba(0,0,0,0.5)',
+                color: 'white',
+                fontSize: '24px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title="Next image"
+            >
+              →
+            </button>
+          )}
+          <img
+            src={getImageUrl(images[enlargedImageIndex])}
+            alt="Enlarged"
+            style={{ maxWidth: '95vw', maxHeight: '95vh', objectFit: 'contain' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

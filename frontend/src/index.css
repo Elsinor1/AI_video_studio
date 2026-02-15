@@ -87,19 +87,21 @@ code {
 .navbar {
   background: var(--bg-surface);
   box-shadow: var(--shadow);
-  margin-bottom: 20px;
+  margin-bottom: 0;
   position: sticky;
   top: 0;
   z-index: 100;
 }
 
 .navbar-content {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   padding: 15px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  box-sizing: border-box;
 }
 
 .navbar-brand h1 {
@@ -145,9 +147,11 @@ code {
 }
 
 .container {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 20px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 20px 20px 20px;
+  box-sizing: border-box;
 }
 
 .container h1,
@@ -332,4 +336,28 @@ select {
 .image-item.rejected {
   border-color: var(--danger);
   opacity: 0.6;
+}
+
+/* Image navigation arrows - hover animation */
+.nav-arrow {
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.nav-arrow:hover {
+  transform: translateY(-50%) scale(1.15) !important;
+  background: rgba(0, 0, 0, 0.7) !important;
+  border-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--success);
+  border-radius: 50%;
+  animation: spinner-rotate 0.8s linear infinite;
+}
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
 }
