@@ -43,6 +43,12 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const [editedDescription, setEditedDescription] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
   const [editingDescription, setEditingDescription] = useState(false)
+  const [addImageModalOpen, setAddImageModalOpen] = useState(false)
+  const [addImageTab, setAddImageTab] = useState('upload') // 'upload' | 'project' | 'general'
+  const [uploadFile, setUploadFile] = useState(null)
+  const [addingImage, setAddingImage] = useState(false)
+  const [projectImages, setProjectImages] = useState([])
+  const [loadingProjectImages, setLoadingProjectImages] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -71,6 +77,26 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     loadSceneStyles()
     loadImageReferences()
   }, [scriptId])
+
+  const loadProjectImages = async () => {
+    if (!scriptId) return
+    setLoadingProjectImages(true)
+    try {
+      const response = await axios.get(`${API_BASE}/projects/${scriptId}/images`)
+      setProjectImages(response.data || [])
+    } catch (error) {
+      console.error('Error loading project images:', error)
+      setProjectImages([])
+    } finally {
+      setLoadingProjectImages(false)
+    }
+  }
+
+  useEffect(() => {
+    if (addImageModalOpen && addImageTab === 'project') {
+      loadProjectImages()
+    }
+  }, [addImageModalOpen, addImageTab, scriptId])
 
   const loadData = async () => {
     if (!scriptId || !sceneId) return
@@ -346,6 +372,60 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     }
   }
 
+  const handleUploadImage = async () => {
+    if (!scene || !uploadFile) return
+    setAddingImage(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+      await axios.post(`${API_BASE}/scenes/${scene.id}/images/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      await loadImages(scene.id, true)
+      setAddImageModalOpen(false)
+      setUploadFile(null)
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      alert('Error uploading image: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setAddingImage(false)
+    }
+  }
+
+  const handleAddFromLibrary = async (imageReferenceId) => {
+    if (!scene) return
+    setAddingImage(true)
+    try {
+      await axios.post(`${API_BASE}/scenes/${scene.id}/images/from-reference`, {
+        image_reference_id: imageReferenceId,
+      })
+      await loadImages(scene.id, true)
+      setAddImageModalOpen(false)
+    } catch (error) {
+      console.error('Error adding from library:', error)
+      alert('Error adding from library: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setAddingImage(false)
+    }
+  }
+
+  const handleAddFromProject = async (imageId) => {
+    if (!scene) return
+    setAddingImage(true)
+    try {
+      await axios.post(`${API_BASE}/scenes/${scene.id}/images/from-project-image`, {
+        image_id: imageId,
+      })
+      await loadImages(scene.id, true)
+      setAddImageModalOpen(false)
+    } catch (error) {
+      console.error('Error adding from project:', error)
+      alert('Error adding from project: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setAddingImage(false)
+    }
+  }
+
   const getImageUrl = (image) => {
     if (image.url) return image.url
     if (image.file_path) return `/storage/${image.file_path.replace(/\\/g, '/')}`
@@ -523,6 +603,9 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button className="btn btn-success" onClick={handleGenerateImage} disabled={!editedDescription || generatingImage} style={{ opacity: !editedDescription ? 0.6 : 1 }} title={!editedDescription ? 'Generate scene description first' : ''}>
                 Generate image
+              </button>
+              <button className="btn btn-secondary" onClick={() => setAddImageModalOpen(true)} style={{ padding: '6px 12px', fontSize: '13px' }} title="Add image from device or library">
+                Add from storage/library
               </button>
               {generatingImage && <span className="spinner" aria-hidden="true" />}
             </div>
@@ -750,6 +833,161 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
             <pre style={{ margin: 0, fontSize: '14px', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-secondary)' }}>
               {displayedImage.prompt}
             </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Add image from storage/library modal */}
+      {addImageModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9998,
+            padding: '20px',
+          }}
+          onClick={() => !addingImage && setAddImageModalOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-surface)',
+              borderRadius: '8px',
+              maxWidth: '560px',
+              width: '100%',
+              maxHeight: '85vh',
+              overflow: 'auto',
+              padding: '20px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              border: '1px solid var(--border)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px' }}>Add image</h3>
+              <button type="button" className="btn btn-secondary" onClick={() => !addingImage && setAddImageModalOpen(false)} style={{ padding: '4px 12px', fontSize: '14px' }}>Close</button>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <button
+                type="button"
+                className={addImageTab === 'upload' ? 'btn btn-primary' : 'btn btn-secondary'}
+                onClick={() => setAddImageTab('upload')}
+                style={{ padding: '6px 14px', fontSize: '14px' }}
+              >
+                Upload
+              </button>
+              <button
+                type="button"
+                className={addImageTab === 'project' ? 'btn btn-primary' : 'btn btn-secondary'}
+                onClick={() => setAddImageTab('project')}
+                style={{ padding: '6px 14px', fontSize: '14px' }}
+              >
+                Project library
+              </button>
+              <button
+                type="button"
+                className={addImageTab === 'general' ? 'btn btn-primary' : 'btn btn-secondary'}
+                onClick={() => setAddImageTab('general')}
+                style={{ padding: '6px 14px', fontSize: '14px' }}
+              >
+                General library
+              </button>
+            </div>
+            {addImageTab === 'upload' && (
+              <div>
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  style={{ marginBottom: '12px', fontSize: '14px' }}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={handleUploadImage}
+                  disabled={!uploadFile || addingImage}
+                  style={{ padding: '8px 16px' }}
+                >
+                  {addingImage ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+            )}
+            {addImageTab === 'project' && (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>Images from all scenes in this project</p>
+                {loadingProjectImages ? (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>Loading...</p>
+                ) : projectImages.filter(img => getImageUrl(img)).length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>No images in this project yet. Generate or upload images first.</p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {projectImages.filter(img => getImageUrl(img)).map((img) => {
+                      const imgUrl = getImageUrl(img)
+                      const sceneForImg = scenes.find(s => s.id === img.scene_id)
+                      const sceneLabel = sceneForImg ? `Scene ${sceneForImg.order}` : ''
+                      return (
+                        <div
+                          key={img.id}
+                          onClick={() => handleAddFromProject(img.id)}
+                          style={{
+                            cursor: addingImage ? 'not-allowed' : 'pointer',
+                            opacity: addingImage ? 0.6 : 1,
+                            padding: '4px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-surface-alt)',
+                            textAlign: 'center',
+                          }}
+                          title={sceneLabel}
+                        >
+                          <img src={imgUrl} alt={sceneLabel} style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px' }} />
+                          <p style={{ margin: '4px 0 0 0', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sceneLabel}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {addImageTab === 'general' && (
+              <div>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>Global image references (Settings → Image References)</p>
+                {imageReferences.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>No image references. Add some in Settings → Image References.</p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {imageReferences.map((ref) => {
+                      const refUrl = ref.image_path ? `/storage/${ref.image_path.replace(/\\/g, '/')}` : null
+                      return (
+                        <div
+                          key={ref.id}
+                          onClick={() => handleAddFromLibrary(ref.id)}
+                          style={{
+                            cursor: addingImage ? 'not-allowed' : 'pointer',
+                            opacity: addingImage ? 0.6 : 1,
+                            padding: '4px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            background: 'var(--bg-surface-alt)',
+                            textAlign: 'center',
+                          }}
+                          title={ref.name}
+                        >
+                          {refUrl ? (
+                            <img src={refUrl} alt={ref.name} style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px' }} />
+                          ) : (
+                            <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>No preview</div>
+                          )}
+                          <p style={{ margin: '4px 0 0 0', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ref.name}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

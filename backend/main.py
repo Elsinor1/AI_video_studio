@@ -420,6 +420,110 @@ def get_images(scene_id: int, db: Session = Depends(get_db)):
     return crud.get_images_by_scene(db=db, scene_id=scene_id)
 
 
+@app.post("/api/scenes/{scene_id}/images/upload", response_model=schemas.Image)
+async def upload_scene_image(scene_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Add an image to a scene by uploading from device storage"""
+    scene = crud.get_scene(db=db, scene_id=scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        raise HTTPException(status_code=400, detail="File must be JPG, PNG, or WebP")
+    project_id = scene.project_id
+    output_dir = os.path.join("storage", f"project_{project_id}", "images", f"scene_{scene_id}")
+    os.makedirs(output_dir, exist_ok=True)
+    stored_name = f"uploaded_{uuid.uuid4().hex[:12]}{ext}"
+    rel_path = f"project_{project_id}/images/scene_{scene_id}/{stored_name}"
+    full_path = os.path.join("storage", rel_path)
+    try:
+        contents = await file.read()
+        with open(full_path, "wb") as f:
+            f.write(contents)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+    image = crud.create_image(db=db, image=schemas.ImageCreate(scene_id=scene_id, prompt="Uploaded image"))
+    crud.update_image(db=db, image_id=image.id, file_path=rel_path.replace("\\", "/"), status="pending")
+    db.refresh(image)
+    image = crud.get_image(db=db, image_id=image.id)
+    return image
+
+
+@app.post("/api/scenes/{scene_id}/images/from-reference", response_model=schemas.Image)
+def add_image_from_reference(scene_id: int, body: schemas.AddImageFromReferenceRequest, db: Session = Depends(get_db)):
+    """Add an image to a scene from the image references library"""
+    scene = crud.get_scene(db=db, scene_id=scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    ref = crud.get_image_reference(db=db, ref_id=body.image_reference_id)
+    if not ref:
+        raise HTTPException(status_code=404, detail="Image reference not found")
+    src_path = os.path.join("storage", ref.image_path.replace("/", os.sep))
+    if not os.path.isfile(src_path):
+        raise HTTPException(status_code=404, detail="Image reference file not found")
+    project_id = scene.project_id
+    output_dir = os.path.join("storage", f"project_{project_id}", "images", f"scene_{scene_id}")
+    os.makedirs(output_dir, exist_ok=True)
+    ext = os.path.splitext(ref.image_path)[1] or ".png"
+    stored_name = f"from_ref_{ref.id}_{uuid.uuid4().hex[:8]}{ext}"
+    rel_path = f"project_{project_id}/images/scene_{scene_id}/{stored_name}"
+    full_path = os.path.join("storage", rel_path)
+    try:
+        shutil.copy2(src_path, full_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to copy file: {e}")
+    image = crud.create_image(db=db, image=schemas.ImageCreate(scene_id=scene_id, prompt=f"From library: {ref.name}"))
+    crud.update_image(db=db, image_id=image.id, file_path=rel_path.replace("\\", "/"), status="pending")
+    db.refresh(image)
+    image = crud.get_image(db=db, image_id=image.id)
+    return image
+
+
+@app.get("/api/projects/{project_id}/images", response_model=list[schemas.Image])
+def get_project_images(project_id: int, db: Session = Depends(get_db)):
+    """Get all images from all scenes in a project"""
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return crud.get_images_by_project(db=db, project_id=project_id)
+
+
+@app.post("/api/scenes/{scene_id}/images/from-project-image", response_model=schemas.Image)
+def add_image_from_project(scene_id: int, body: schemas.AddImageFromProjectRequest, db: Session = Depends(get_db)):
+    """Add an image to a scene by copying from another scene in the same project"""
+    scene = crud.get_scene(db=db, scene_id=scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    src_image = crud.get_image(db=db, image_id=body.image_id)
+    if not src_image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    src_scene = crud.get_scene(db=db, scene_id=src_image.scene_id)
+    if not src_scene or src_scene.project_id != scene.project_id:
+        raise HTTPException(status_code=400, detail="Image must be from the same project")
+    if not src_image.file_path:
+        raise HTTPException(status_code=400, detail="Source image has no file")
+    src_path = os.path.join("storage", src_image.file_path.replace("/", os.sep))
+    if not os.path.isfile(src_path):
+        raise HTTPException(status_code=404, detail="Source image file not found")
+    project_id = scene.project_id
+    output_dir = os.path.join("storage", f"project_{project_id}", "images", f"scene_{scene_id}")
+    os.makedirs(output_dir, exist_ok=True)
+    ext = os.path.splitext(src_image.file_path)[1] or ".png"
+    stored_name = f"from_project_{src_image.id}_{uuid.uuid4().hex[:8]}{ext}"
+    rel_path = f"project_{project_id}/images/scene_{scene_id}/{stored_name}"
+    full_path = os.path.join("storage", rel_path)
+    try:
+        shutil.copy2(src_path, full_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to copy file: {e}")
+    image = crud.create_image(db=db, image=schemas.ImageCreate(scene_id=scene_id, prompt=f"From project: Scene {src_scene.order}"))
+    crud.update_image(db=db, image_id=image.id, file_path=rel_path.replace("\\", "/"), status="pending")
+    db.refresh(image)
+    image = crud.get_image(db=db, image_id=image.id)
+    return image
+
+
 @app.post("/api/images/{image_id}/approve")
 def approve_image(image_id: int, db: Session = Depends(get_db)):
     """Approve an image and save it as the scene's approved image (used when continuing from previous scene)"""

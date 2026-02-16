@@ -223,6 +223,16 @@ class ImageCreate(ImageBase):
     visual_style_id: Optional[int] = None
 
 
+class AddImageFromReferenceRequest(BaseModel):
+    """Request to add an image to a scene from the image references library"""
+    image_reference_id: int
+
+
+class AddImageFromProjectRequest(BaseModel):
+    """Request to add an image to a scene from another scene in the project"""
+    image_id: int
+
+
 class Image(ImageBase):
     id: int
     scene_id: int

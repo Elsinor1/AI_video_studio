@@ -301,6 +301,17 @@ def get_images_by_scene(db: Session, scene_id: int):
     return db.query(models.Image).filter(models.Image.scene_id == scene_id).order_by(desc(models.Image.created_at)).all()
 
 
+def get_images_by_project(db: Session, project_id: int):
+    """Get all images from all scenes in a project. Returns images with file_path or url."""
+    return (
+        db.query(models.Image)
+        .join(models.Scene, models.Image.scene_id == models.Scene.id)
+        .filter(models.Scene.project_id == project_id)
+        .order_by(desc(models.Image.created_at))
+        .all()
+    )
+
+
 def update_image(db: Session, image_id: int, **kwargs):
     db_image = db.query(models.Image).filter(models.Image.id == image_id).first()
     if not db_image:
