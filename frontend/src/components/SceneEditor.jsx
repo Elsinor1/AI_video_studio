@@ -24,6 +24,7 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   const [segmentationPreviewOpen, setSegmentationPreviewOpen] = useState(false)
   const [applyingPreview, setApplyingPreview] = useState(false)
   const [sceneImages, setSceneImages] = useState({}) // sceneId -> images[]
+  const [descriptionInstruction, setDescriptionInstruction] = useState('')
 
   useEffect(() => {
     loadScenes()
@@ -232,7 +233,9 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
   const handleGenerateVisualDescription = async (sceneId) => {
     try {
       setGeneratingDescriptions({ ...generatingDescriptions, [sceneId]: true })
-      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-visual-description`, null, {
+      await axios.post(`${API_BASE}/scenes/${sceneId}/generate-visual-description`, {
+        instruction: descriptionInstruction.trim() || undefined
+      }, {
         params: continueFromPreviousScene ? { continue_from_previous_scene: true } : {}
       })
       // Reload scenes and visual descriptions
@@ -546,6 +549,25 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
                     >
                       {generatingDescriptions[scene.id] ? '...' : 'Generate Scene Description'}
                     </button>
+                    <input
+                      type="text"
+                      value={descriptionInstruction}
+                      onChange={(e) => setDescriptionInstruction(e.target.value)}
+                      placeholder="+ Instruction"
+                      title="Optional instruction for the AI when generating scene description"
+                      style={{
+                        width: descriptionInstruction ? `${Math.min(120 + descriptionInstruction.length * 8, 280)}px` : '100px',
+                        minWidth: 100,
+                        maxWidth: 280,
+                        padding: '6px 10px',
+                        fontSize: '13px',
+                        border: '1px solid var(--border)',
+                        borderRadius: '4px',
+                        background: 'var(--bg-surface)',
+                        color: 'var(--text-primary)',
+                        transition: 'width 0.2s ease',
+                      }}
+                    />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
                     <button
@@ -557,12 +579,12 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
                     >
                       Generate image
                     </button>
-                    <div style={{ width: '200px', height: '130px', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-hover)', flexShrink: 0 }}>
+                    <div style={{ width: '200px', height: '130px', minHeight: '130px', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-hover)', flexShrink: 0 }}>
                     {imageUrl ? (
                       <img src={imageUrl} alt={`Scene ${scene.order}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
-                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
-                        No image
+                      <div style={{ width: '100%', height: '100%', minHeight: '130px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
+                        {generatingDescriptions[scene.id] ? 'Generating...' : 'No image'}
                       </div>
                     )}
                     </div>

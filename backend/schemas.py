@@ -141,6 +141,11 @@ class VisualDescriptionIterateRequest(BaseModel):
     current_description: Optional[str] = None  # Description to iterate on; if omitted, uses scene's current
 
 
+class GenerateVisualDescriptionRequest(BaseModel):
+    """Optional instruction to guide scene description generation"""
+    instruction: Optional[str] = None
+
+
 class ScriptPromptBase(BaseModel):
     name: str
     script_description: str  # Description/instructions for script generation

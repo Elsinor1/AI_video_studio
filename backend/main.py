@@ -261,11 +261,13 @@ def update_scene(scene_id: int, scene: schemas.SceneUpdate, db: Session = Depend
 
 
 @app.post("/api/scenes/{scene_id}/generate-visual-description")
-def generate_scene_visual_description(scene_id: int, continue_from_previous_scene: bool = False, db: Session = Depends(get_db)):
+def generate_scene_visual_description(scene_id: int, continue_from_previous_scene: bool = False, body: Optional[schemas.GenerateVisualDescriptionRequest] = Body(default=None), db: Session = Depends(get_db)):
     """Generate a scene description for a scene using AI"""
     scene = crud.get_scene(db=db, scene_id=scene_id)
     if not scene:
         raise HTTPException(status_code=404, detail="Scene not found")
+    
+    instruction = (body.instruction or "").strip() if body else None
     
     # Get scene style if available
     scene_style_description = None
@@ -290,7 +292,8 @@ def generate_scene_visual_description(scene_id: int, continue_from_previous_scen
         scene.text, 
         scene_style_description=scene_style_description,
         scene_style_params=scene_style_params,
-        previous_scene_description=previous_scene_description
+        previous_scene_description=previous_scene_description,
+        instruction=instruction
     )
     
     # Save to visual descriptions history

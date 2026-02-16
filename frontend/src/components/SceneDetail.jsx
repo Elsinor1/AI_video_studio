@@ -49,6 +49,7 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
   const [addingImage, setAddingImage] = useState(false)
   const [projectImages, setProjectImages] = useState([])
   const [loadingProjectImages, setLoadingProjectImages] = useState(false)
+  const [descriptionInstruction, setDescriptionInstruction] = useState('')
 
   useEffect(() => {
     loadData()
@@ -97,6 +98,17 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
       loadProjectImages()
     }
   }, [addImageModalOpen, addImageTab, scriptId])
+
+  // Default Ref to first image reference when scene has none and references exist
+  useEffect(() => {
+    if (!scene || !imageReferences.length) return
+    if (scene.image_reference_id) return
+    const firstRefId = imageReferences[0].id
+    setSelectedImageRef(firstRefId)
+    axios.put(`${API_BASE}/scenes/${scene.id}`, { image_reference_id: firstRefId })
+      .then(() => loadData())
+      .catch((err) => console.error('Failed to set default ref:', err))
+  }, [scene?.id, scene?.image_reference_id, imageReferences])
 
   const loadData = async () => {
     if (!scriptId || !sceneId) return
@@ -271,7 +283,9 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
     if (!scene) return
     setGeneratingDescription(true)
     try {
-      await axios.post(`${API_BASE}/scenes/${scene.id}/generate-visual-description`, null, {
+      await axios.post(`${API_BASE}/scenes/${scene.id}/generate-visual-description`, {
+        instruction: descriptionInstruction.trim() || undefined
+      }, {
         params: continueFromPreviousScene ? { continue_from_previous_scene: true } : {}
       })
       await loadVisualDescriptions(scene.id)
@@ -518,6 +532,25 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
               <button className="btn btn-info" onClick={handleGenerateVisualDescription} disabled={generatingDescription}>
                 {generatingDescription ? '...' : 'Generate Scene Description'}
               </button>
+              <input
+                type="text"
+                value={descriptionInstruction}
+                onChange={(e) => setDescriptionInstruction(e.target.value)}
+                placeholder="+ Instruction"
+                title="Optional instruction for the AI when generating scene description"
+                style={{
+                  width: descriptionInstruction ? `${Math.min(120 + descriptionInstruction.length * 8, 280)}px` : '100px',
+                  minWidth: 100,
+                  maxWidth: 280,
+                  padding: '6px 10px',
+                  fontSize: '13px',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                  transition: 'width 0.2s ease',
+                }}
+              />
             </div>
           </div>
           )}
@@ -613,13 +646,15 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
           <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', width: 'fit-content' }}>
             {/* Main image with navigation arrows - click to enlarge */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ position: 'relative', width: '520px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-hover)', cursor: displayedImage ? 'pointer' : 'default' }} onClick={() => displayedImage && getImageUrl(displayedImage) && setEnlargedImageIndex(displayedImageIndex)}>
+            <div style={{ position: 'relative', width: '520px', minHeight: '380px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-hover)', cursor: displayedImage && getImageUrl(displayedImage) ? 'pointer' : 'default' }} onClick={() => displayedImage && getImageUrl(displayedImage) && setEnlargedImageIndex(displayedImageIndex)}>
               {loadingImages ? (
                 <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>Loading...</div>
-              ) : displayedImage ? (
+              ) : displayedImage && getImageUrl(displayedImage) ? (
                 <img src={getImageUrl(displayedImage)} alt={`Scene ${scene.order}`} style={{ width: '100%', display: 'block' }} />
               ) : (
-                <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>No image</div>
+                <div style={{ height: '380px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-muted)' }}>
+                  {generatingImage ? 'Generating...' : 'No image'}
+                </div>
               )}
               {hasMultipleImages && (
                 <>
@@ -679,23 +714,39 @@ function SceneDetail({ scriptId, sceneId, onBack, onNextScene, onPrevScene, hasN
                   )}
                 </>
               )}
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {displayedImage?.prompt && (
-                <button type="button" className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setPromptModalOpen(true) }} style={{ padding: '6px 12px', fontSize: '13px' }}>
-                  View prompt
-                </button>
-              )}
-              {displayedImage?.id && (
-                <button
-                  type="button"
-                  className={scene.approved_image_id === displayedImage.id ? 'btn btn-success' : 'btn btn-secondary'}
-                  onClick={(e) => { e.stopPropagation(); handleApproveImage() }}
-                  style={{ padding: '6px 12px', fontSize: '13px' }}
-                  title={scene.approved_image_id === displayedImage.id ? 'This image is approved (used as reference when continuing)' : 'Approve this image for use as reference when continuing from previous scene'}
+              {/* View prompt & Approve buttons overlaid at bottom of image */}
+              {(displayedImage?.prompt || displayedImage?.id) && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {scene.approved_image_id === displayedImage.id ? '✓ Approved' : 'Approve'}
-                </button>
+                  {displayedImage?.prompt && (
+                    <button type="button" className="btn btn-secondary" onClick={(e) => { e.stopPropagation(); setPromptModalOpen(true) }} style={{ padding: '6px 12px', fontSize: '13px' }}>
+                      View prompt
+                    </button>
+                  )}
+                  {displayedImage?.id && (
+                    <button
+                      type="button"
+                      className={scene.approved_image_id === displayedImage.id ? 'btn btn-success' : 'btn btn-secondary'}
+                      onClick={(e) => { e.stopPropagation(); handleApproveImage() }}
+                      style={{ padding: '6px 12px', fontSize: '13px' }}
+                      title={scene.approved_image_id === displayedImage.id ? 'This image is approved (used as reference when continuing)' : 'Approve this image for use as reference when continuing from previous scene'}
+                    >
+                      {scene.approved_image_id === displayedImage.id ? '✓ Approved' : 'Approve'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             </div>

@@ -200,7 +200,7 @@ def segment_script(script_content: str) -> List[Dict[str, str]]:
         return [{"text": p, "order": i + 1} for i, p in enumerate(paragraphs)]
 
 
-def generate_scene_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None, previous_scene_description: str = None) -> str:
+def generate_scene_description(scene_text: str, scene_style_description: str = None, scene_style_params: str = None, previous_scene_description: str = None, instruction: str = None) -> str:
     """
     Generate a detailed scene description of a scene based on its text and optional scene style.
     Returns a description like "main character is looking down and weeping"
@@ -243,12 +243,17 @@ Use the previous scene description as context. The new scene should feel like a 
             # If JSON parsing fails, use params as-is
             style_instruction = f"\n\nScene Style: {scene_style_params}"
     
+    instruction_block = ""
+    if instruction:
+        instruction_block = f"\n\nAdditional instruction (follow this):\n{instruction}"
+    
     prompt = f"""CRITICAL: Your response MUST be under 800 characters. Be concise—prioritize the most important visual elements.
 {previous_instruction}
 
 New scene text:
 {scene_text}
 {style_instruction if style_instruction else ''}
+{instruction_block}
 
 Generate a vivid scene description with these labels (keep each section brief):
 - Characters: Who is in the scene and key actions/expressions
@@ -276,7 +281,7 @@ Return ONLY the scene description, no explanation. Stay under 800 characters."""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a visual director. Generate concise, vivid scene descriptions. STRICT: Your response must be under 800 characters. Be brief—every word must earn its place. Don't specify gender of main character.",
+                    "content": "You are a visual director. Generate concise, vivid scene descriptions. STRICT: Your response must be under 800 characters. Be brief—every word must earn its place. Don't specify gender of main character. Choose one or two most key words from scene and focus on visualizing them.",
                 },
                 {"role": "user", "content": prompt},
             ],
