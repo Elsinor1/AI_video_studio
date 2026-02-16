@@ -622,16 +622,412 @@ def generate_image_with_stable_diffusion(
     raise NotImplementedError("Configure Stable Diffusion API endpoint")
 
 
-def create_video_from_images(
-    image_paths: List[str], output_path: str, duration_per_image: float = 3.0
-    ) -> str:
+# ---------------------------------------------------------------------------
+# ElevenLabs TTS with timestamps
+# ---------------------------------------------------------------------------
+
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "G17SuINrv2H9FC6nvetn")
+
+
+def generate_full_script_speech(full_text: str, output_audio_path: str) -> dict:
     """
-    Create video from sequence of images using FFmpeg
+    Call ElevenLabs TTS with-timestamps for the full script text.
+    Saves audio to output_audio_path and returns the alignment dict.
+    """
+    import base64
+
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise ValueError("ELEVENLABS_API_KEY environment variable not set")
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/with-timestamps"
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "text": full_text,
+        "model_id": "eleven_multilingual_v2",
+        "output_format": "mp3_44100_128",
+    }
+
+    print(f"[TTS] Calling ElevenLabs with-timestamps, text length={len(full_text)}")
+    resp = requests.post(url, json=payload, headers=headers, timeout=300)
+    if resp.status_code != 200:
+        raise ValueError(f"ElevenLabs API error {resp.status_code}: {resp.text[:500]}")
+
+    data = resp.json()
+    audio_b64 = data.get("audio_base64")
+    alignment = data.get("alignment")
+
+    if not audio_b64:
+        raise ValueError("ElevenLabs returned no audio_base64")
+    if not alignment:
+        raise ValueError("ElevenLabs returned no alignment data")
+
+    audio_bytes = base64.b64decode(audio_b64)
+    os.makedirs(os.path.dirname(output_audio_path), exist_ok=True)
+    with open(output_audio_path, "wb") as f:
+        f.write(audio_bytes)
+
+    print(f"[TTS] Audio saved to {output_audio_path} ({len(audio_bytes)} bytes)")
+    print(f"[TTS] Alignment: {len(alignment.get('characters', []))} characters")
+
+    return alignment
+
+
+def compute_scene_timings(scene_texts: List[str], scene_ids: List[int], alignment: dict) -> List[dict]:
+    """
+    Map scene text boundaries to audio timestamps using character offsets.
+    Returns list of timing dicts: [{scene_id, start_time, end_time, transition_type, transition_duration}, ...]
+    """
+    char_start_times = alignment["character_start_times_seconds"]
+    char_end_times = alignment["character_end_times_seconds"]
+
+    full_text = ""
+    scene_char_ranges = []
+    for text in scene_texts:
+        start = len(full_text)
+        full_text += text
+        end_idx = len(full_text) - 1
+        scene_char_ranges.append((start, end_idx))
+        full_text += " "
+
+    scene_timings = []
+    for i, (char_start, char_end) in enumerate(scene_char_ranges):
+        clamped_start = min(char_start, len(char_start_times) - 1)
+        clamped_end = min(char_end, len(char_end_times) - 1)
+        start_time = char_start_times[clamped_start]
+        end_time = char_end_times[clamped_end]
+        scene_timings.append({
+            "scene_id": scene_ids[i],
+            "start_time": round(start_time, 3),
+            "end_time": round(end_time, 3),
+            "transition_type": "cut",
+            "transition_duration": 0.0,
+        })
+
+    print(f"[TTS] Computed timings for {len(scene_timings)} scenes")
+    for t in scene_timings:
+        print(f"  Scene {t['scene_id']}: {t['start_time']:.2f}s - {t['end_time']:.2f}s ({t['end_time']-t['start_time']:.2f}s)")
+
+    return scene_timings
+
+
+# ---------------------------------------------------------------------------
+# Caption generation (ASS subtitle format)
+# ---------------------------------------------------------------------------
+
+def _group_chars_into_words(alignment: dict) -> List[dict]:
+    """Helper: group character-level alignment into words with timing."""
+    chars = alignment["characters"]
+    starts = alignment["character_start_times_seconds"]
+    ends = alignment["character_end_times_seconds"]
+
+    words = []
+    current_word = ""
+    word_start = None
+    word_end = None
+
+    for i, ch in enumerate(chars):
+        if ch == " " or ch == "\n":
+            if current_word:
+                words.append({
+                    "word": current_word,
+                    "start": word_start,
+                    "end": word_end,
+                })
+                current_word = ""
+                word_start = None
+                word_end = None
+        else:
+            if word_start is None:
+                word_start = starts[i]
+            word_end = ends[i]
+            current_word += ch
+
+    if current_word:
+        words.append({
+            "word": current_word,
+            "start": word_start,
+            "end": word_end,
+        })
+
+    return words
+
+
+def _format_ass_time(seconds: float) -> str:
+    """Format seconds to ASS timestamp H:MM:SS.cc"""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+
+def generate_captions_ass(alignment: dict, caption_style: str, output_ass_path: str) -> str:
+    """
+    Generate ASS subtitle file from alignment data.
+    caption_style: "word_highlight" or "subtitle_chunks"
+    """
+    words = _group_chars_into_words(alignment)
+    if not words:
+        raise ValueError("No words found in alignment data")
+
+    header = """[Script Info]
+Title: AI Video Studio Captions
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
+Style: Highlight,Arial,72,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
+Style: Dim,Arial,72,&H60FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    events = []
+
+    if caption_style == "word_highlight":
+        chunk_size = 5
+        for chunk_start in range(0, len(words), chunk_size):
+            chunk = words[chunk_start:chunk_start + chunk_size]
+            chunk_begin = chunk[0]["start"]
+            chunk_end = chunk[-1]["end"]
+
+            for wi, w in enumerate(chunk):
+                line_parts = []
+                for wj, w2 in enumerate(chunk):
+                    if wj == wi:
+                        line_parts.append(r"{\rHighlight}" + w2["word"] + r"{\rDefault}")
+                    else:
+                        line_parts.append(r"{\rDim}" + w2["word"] + r"{\rDefault}")
+                text = " ".join(line_parts)
+                start_t = _format_ass_time(w["start"])
+                end_t = _format_ass_time(w["end"])
+                events.append(f"Dialogue: 0,{start_t},{end_t},Default,,0,0,0,,{text}")
+
+    else:
+        chunk_size = 6
+        for chunk_start in range(0, len(words), chunk_size):
+            chunk = words[chunk_start:chunk_start + chunk_size]
+            text = " ".join(w["word"] for w in chunk)
+            start_t = _format_ass_time(chunk[0]["start"])
+            end_t = _format_ass_time(chunk[-1]["end"])
+            events.append(f"Dialogue: 0,{start_t},{end_t},Default,,0,0,0,,{text}")
+
+    content = header + "\n".join(events) + "\n"
+    os.makedirs(os.path.dirname(output_ass_path), exist_ok=True)
+    with open(output_ass_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print(f"[CAPTIONS] Generated {len(events)} subtitle events ({caption_style}) -> {output_ass_path}")
+    return output_ass_path
+
+
+# ---------------------------------------------------------------------------
+# Video creation with transitions and audio
+# ---------------------------------------------------------------------------
+
+def create_video_with_transitions(
+    scene_entries: List[dict],
+    audio_path: str,
+    output_path: str,
+    ass_path: Optional[str] = None,
+) -> str:
+    """
+    Create video from images with per-scene durations, transitions, and audio.
+    scene_entries: list of {image_path, duration, transition_type, transition_duration}
     """
     import subprocess
     import tempfile
 
-    # Create temporary file list for FFmpeg concat
+    if not scene_entries:
+        raise ValueError("No scene entries provided")
+
+    temp_dir = tempfile.mkdtemp(prefix="video_render_")
+    segment_paths = []
+
+    try:
+        for i, entry in enumerate(scene_entries):
+            seg_path = os.path.join(temp_dir, f"seg_{i}.mp4")
+            segment_paths.append(seg_path)
+            img_abs = os.path.abspath(entry["image_path"])
+            dur = entry["duration"]
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-loop", "1",
+                "-t", str(dur),
+                "-i", img_abs,
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black",
+                "-c:v", "libx264",
+                "-tune", "stillimage",
+                "-pix_fmt", "yuv420p",
+                "-r", "30",
+                seg_path,
+            ]
+            print(f"[VIDEO] Creating segment {i}: {dur:.2f}s from {os.path.basename(img_abs)}")
+            subprocess.run(cmd, check=True, capture_output=True)
+
+        has_transitions = any(
+            e.get("transition_duration", 0) > 0 and e.get("transition_type", "cut") != "cut"
+            for e in scene_entries[:-1]
+        )
+
+        if has_transitions and len(segment_paths) > 1:
+            video_no_audio = os.path.join(temp_dir, "video_no_audio.mp4")
+            _build_xfade_chain(segment_paths, scene_entries, video_no_audio)
+        else:
+            video_no_audio = os.path.join(temp_dir, "video_no_audio.mp4")
+            _build_concat_video(segment_paths, video_no_audio)
+
+        if ass_path and os.path.isfile(ass_path):
+            video_with_subs = os.path.join(temp_dir, "video_subs.mp4")
+            ass_abs = os.path.abspath(ass_path).replace("\\", "/").replace(":", "\\:")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_no_audio,
+                "-vf", f"ass='{ass_abs}'",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
+                video_with_subs,
+            ]
+            print(f"[VIDEO] Burning in captions from {ass_path}")
+            subprocess.run(cmd, check=True, capture_output=True)
+            video_no_audio = video_with_subs
+
+        audio_abs = os.path.abspath(audio_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_no_audio,
+            "-i", audio_abs,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            output_path,
+        ]
+        print(f"[VIDEO] Muxing audio + video -> {output_path}")
+        subprocess.run(cmd, check=True, capture_output=True)
+
+        return output_path
+
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode() if e.stderr else "unknown"
+        print(f"[VIDEO] FFmpeg error: {stderr}")
+        raise
+    except FileNotFoundError:
+        raise Exception("FFmpeg not found. Please install FFmpeg to create videos.")
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _build_concat_video(segment_paths: List[str], output_path: str):
+    """Simple concat of video segments (no transitions)."""
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        for seg in segment_paths:
+            f.write(f"file '{os.path.abspath(seg)}'\n")
+        list_path = f.name
+
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", list_path,
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+    finally:
+        os.unlink(list_path)
+
+
+def _build_xfade_chain(segment_paths: List[str], scene_entries: List[dict], output_path: str):
+    """Build video with xfade transitions between segments."""
+    import subprocess
+
+    if len(segment_paths) == 1:
+        import shutil
+        shutil.copy2(segment_paths[0], output_path)
+        return
+
+    inputs = []
+    for seg in segment_paths:
+        inputs.extend(["-i", os.path.abspath(seg)])
+
+    filter_parts = []
+    cumulative_offset = 0.0
+    prev_label = "[0]"
+
+    for i in range(1, len(segment_paths)):
+        entry = scene_entries[i - 1]
+        trans_type = entry.get("transition_type", "cut")
+        trans_dur = entry.get("transition_duration", 0.0)
+        seg_dur = entry["duration"]
+
+        if trans_type == "cut" or trans_dur <= 0:
+            cumulative_offset += seg_dur
+            if i == 1:
+                filter_parts.append(f"[0][1]concat=n=2:v=1:a=0[v{i}]")
+            else:
+                filter_parts.append(f"{prev_label}[{i}]concat=n=2:v=1:a=0[v{i}]")
+            prev_label = f"[v{i}]"
+        else:
+            xfade_name = "fadeblack" if trans_type == "fade_to_black" else "fade"
+            offset = cumulative_offset + seg_dur - trans_dur
+            if offset < 0:
+                offset = 0
+            out_label = f"[v{i}]"
+
+            if i == 1:
+                filter_parts.append(
+                    f"[0][{i}]xfade=transition={xfade_name}:duration={trans_dur}:offset={offset:.3f}{out_label}"
+                )
+            else:
+                filter_parts.append(
+                    f"{prev_label}[{i}]xfade=transition={xfade_name}:duration={trans_dur}:offset={offset:.3f}{out_label}"
+                )
+            cumulative_offset = offset
+            prev_label = out_label
+
+    filter_complex = ";".join(filter_parts)
+    final_label = prev_label
+
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", filter_complex,
+        "-map", final_label,
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+
+    print(f"[VIDEO] xfade filter: {filter_complex[:200]}...")
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def create_video_from_images(
+    image_paths: List[str], output_path: str, duration_per_image: float = 3.0
+    ) -> str:
+    """
+    Legacy: Create video from sequence of images using FFmpeg (fixed duration, no audio).
+    """
+    import subprocess
+    import tempfile
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         for img_path in image_paths:
             f.write(f"file '{os.path.abspath(img_path)}'\n")
@@ -639,24 +1035,16 @@ def create_video_from_images(
         temp_list = f.name
 
     try:
-        # Use FFmpeg to create video
-        # This requires FFmpeg to be installed on the system
         cmd = [
             "ffmpeg",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            temp_list,
-            "-vsync",
-            "vfr",
-            "-pix_fmt",
-            "yuv420p",
-            "-y",  # Overwrite output file
+            "-f", "concat",
+            "-safe", "0",
+            "-i", temp_list,
+            "-vsync", "vfr",
+            "-pix_fmt", "yuv420p",
+            "-y",
             output_path,
         ]
-
         subprocess.run(cmd, check=True, capture_output=True)
         return output_path
     except subprocess.CalledProcessError as e:

@@ -22,11 +22,12 @@ load_dotenv()
 # If you get schema errors, reset the database by running: python -m backend.reset_db --force
 Base.metadata.create_all(bind=engine)
 
-# Check for common schema issues
+# Check for common schema issues and auto-migrate new columns
 try:
-    from sqlalchemy import inspect
+    from sqlalchemy import inspect, text as sa_text
     inspector = inspect(engine)
-    if 'scenes' in inspector.get_table_names():
+    tables = inspector.get_table_names()
+    if 'scenes' in tables:
         columns = [col['name'] for col in inspector.get_columns('scenes')]
         if 'project_id' not in columns:
             print("\n" + "="*60)
@@ -36,6 +37,12 @@ try:
             print("  python -m backend.reset_db --force")
             print("\nWARNING: This will delete all existing data!")
             print("="*60 + "\n")
+    if 'videos' in tables:
+        vid_cols = [col['name'] for col in inspector.get_columns('videos')]
+        if 'voiceover_id' not in vid_cols:
+            with engine.begin() as conn:
+                conn.execute(sa_text("ALTER TABLE videos ADD COLUMN voiceover_id INTEGER REFERENCES voiceovers(id)"))
+            print("[MIGRATE] Added voiceover_id column to videos table")
 except Exception:
     pass  # Ignore inspection errors during startup
 
@@ -595,6 +602,85 @@ def get_project_video(project_id: int, db: Session = Depends(get_db)):
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
+
+
+# Voiceover endpoints
+@app.post("/api/projects/{project_id}/generate-voiceover")
+def generate_voiceover(project_id: int, db: Session = Depends(get_db)):
+    """Generate voiceover for the full project script"""
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    voiceover = crud.create_voiceover(db=db, project_id=project_id)
+
+    from .tasks import generate_voiceover_task
+    generate_voiceover_task.delay(project_id, voiceover.id)
+
+    return {"message": "Voiceover generation started", "voiceover_id": voiceover.id}
+
+
+@app.get("/api/projects/{project_id}/voiceover", response_model=schemas.Voiceover)
+def get_project_voiceover(project_id: int, db: Session = Depends(get_db)):
+    """Get the latest voiceover for a project"""
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+    return voiceover
+
+
+@app.put("/api/projects/{project_id}/voiceover/scene-timings")
+def update_voiceover_scene_timings(
+    project_id: int,
+    body: schemas.UpdateSceneTimings,
+    db: Session = Depends(get_db),
+):
+    """Update scene timings from the timeline editor"""
+    import json as _json
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+
+    timings_json = _json.dumps([t.dict() for t in body.scene_timings])
+    crud.update_voiceover(db=db, voiceover_id=voiceover.id, scene_timings=timings_json)
+    return {"message": "Scene timings updated"}
+
+
+@app.put("/api/projects/{project_id}/voiceover/caption-settings")
+def update_voiceover_caption_settings(
+    project_id: int,
+    body: schemas.UpdateCaptionSettings,
+    db: Session = Depends(get_db),
+):
+    """Update caption toggle and style"""
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+
+    crud.update_voiceover(
+        db=db,
+        voiceover_id=voiceover.id,
+        captions_enabled=body.captions_enabled,
+        caption_style=body.caption_style,
+    )
+    return {"message": "Caption settings updated"}
+
+
+@app.post("/api/projects/{project_id}/render-video")
+def render_video(project_id: int, body: schemas.RenderVideoRequest, db: Session = Depends(get_db)):
+    """Render final video using voiceover + scene timings + transitions"""
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    voiceover = crud.get_voiceover(db=db, voiceover_id=body.voiceover_id)
+    if not voiceover or voiceover.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Voiceover not found")
+
+    from .tasks import render_video_task
+    render_video_task.delay(project_id, voiceover.id)
+
+    return {"message": "Video render started"}
 
 
 # Visual Style endpoints

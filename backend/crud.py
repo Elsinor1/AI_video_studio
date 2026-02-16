@@ -326,8 +326,8 @@ def update_image(db: Session, image_id: int, **kwargs):
 
 
 # Video CRUD
-def create_video(db: Session, project_id: int):
-    db_video = models.Video(project_id=project_id)
+def create_video(db: Session, project_id: int, voiceover_id: int = None):
+    db_video = models.Video(project_id=project_id, voiceover_id=voiceover_id)
     db.add(db_video)
     db.commit()
     db.refresh(db_video)
@@ -340,6 +340,36 @@ def get_video(db: Session, video_id: int):
 
 def get_video_by_project(db: Session, project_id: int):
     return db.query(models.Video).filter(models.Video.project_id == project_id).order_by(desc(models.Video.created_at)).first()
+
+
+# Voiceover CRUD
+def create_voiceover(db: Session, project_id: int):
+    db_vo = models.Voiceover(project_id=project_id)
+    db.add(db_vo)
+    db.commit()
+    db.refresh(db_vo)
+    return db_vo
+
+
+def get_voiceover(db: Session, voiceover_id: int):
+    return db.query(models.Voiceover).filter(models.Voiceover.id == voiceover_id).first()
+
+
+def get_voiceover_by_project(db: Session, project_id: int):
+    return db.query(models.Voiceover).filter(
+        models.Voiceover.project_id == project_id
+    ).order_by(desc(models.Voiceover.created_at)).first()
+
+
+def update_voiceover(db: Session, voiceover_id: int, **kwargs):
+    db_vo = db.query(models.Voiceover).filter(models.Voiceover.id == voiceover_id).first()
+    if not db_vo:
+        return None
+    for field, value in kwargs.items():
+        setattr(db_vo, field, value)
+    db.commit()
+    db.refresh(db_vo)
+    return db_vo
 
 
 # Visual Description CRUD

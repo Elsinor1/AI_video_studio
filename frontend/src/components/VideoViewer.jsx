@@ -1,73 +1,167 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
+import TimelineEditor from './TimelineEditor'
 
 const API_BASE = '/api'
 
 function VideoViewer({ scriptId, onBack }) {
+  const [step, setStep] = useState('loading')
+  const [voiceover, setVoiceover] = useState(null)
   const [video, setVideo] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
+  const [scenes, setScenes] = useState([])
+  const [error, setError] = useState(null)
+  const pollRef = useRef(null)
 
   useEffect(() => {
-    loadVideo()
+    loadInitialState()
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
   }, [scriptId])
 
-  const loadVideo = async () => {
+  const loadScenes = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/projects/${scriptId}/video`)
-      setVideo(response.data)
-    } catch (error) {
-      if (error.response?.status === 404) {
-        setVideo(null)
-      } else {
-        console.error('Error loading video:', error)
-      }
-    } finally {
-      setLoading(false)
+      const resp = await axios.get(`${API_BASE}/projects/${scriptId}/scenes`)
+      setScenes(resp.data)
+    } catch {
+      setScenes([])
     }
   }
 
-  const handleCreateVideo = async () => {
-    if (!window.confirm('Create video from all approved images?')) {
-      return
-    }
+  const loadInitialState = async () => {
+    setError(null)
+    await loadScenes()
 
-    setCreating(true)
     try {
-      await axios.post(`${API_BASE}/projects/${scriptId}/create-video`)
-      alert('Video creation started! This may take a few minutes. Check back soon.')
-      // Poll for video
-      const interval = setInterval(async () => {
+      const videoResp = await axios.get(`${API_BASE}/projects/${scriptId}/video`)
+      if (videoResp.data && videoResp.data.status === 'approved') {
+        setVideo(videoResp.data)
         try {
-          const response = await axios.get(`${API_BASE}/projects/${scriptId}/video`)
-          if (response.data && response.data.status === 'approved') {
-            setVideo(response.data)
-            clearInterval(interval)
-            setCreating(false)
-          }
-        } catch (error) {
-          // Video not ready yet
-        }
-      }, 5000)
+          const voResp = await axios.get(`${API_BASE}/projects/${scriptId}/voiceover`)
+          setVoiceover(voResp.data)
+        } catch {}
+        setStep('video_ready')
+        return
+      }
+    } catch {}
 
-      setTimeout(() => {
-        clearInterval(interval)
-        setCreating(false)
-        loadVideo()
-      }, 60000) // Stop polling after 1 minute
-    } catch (error) {
-      console.error('Error creating video:', error)
-      alert('Error creating video')
-      setCreating(false)
+    try {
+      const voResp = await axios.get(`${API_BASE}/projects/${scriptId}/voiceover`)
+      setVoiceover(voResp.data)
+      if (voResp.data.status === 'ready') {
+        setStep('timeline')
+        return
+      } else if (voResp.data.status === 'pending') {
+        setStep('generating')
+        startPollingVoiceover()
+        return
+      } else if (voResp.data.status === 'error') {
+        setStep('no_voiceover')
+        setError('Previous voiceover generation failed. Try again.')
+        return
+      }
+    } catch (err) {
+      if (err.response?.status !== 404) {
+        console.error('Error loading voiceover:', err)
+      }
+    }
+
+    setStep('no_voiceover')
+  }
+
+  const handleGenerateVoiceover = async () => {
+    setError(null)
+    setStep('generating')
+    try {
+      const resp = await axios.post(`${API_BASE}/projects/${scriptId}/generate-voiceover`)
+      startPollingVoiceover()
+    } catch (err) {
+      console.error('Error generating voiceover:', err)
+      setError('Failed to start voiceover generation')
+      setStep('no_voiceover')
     }
   }
 
-  const getVideoUrl = (video) => {
-    if (video.url) return video.url
-    if (video.file_path) {
-      // file_path is stored relative to storage/ directory
-      return `/storage/${video.file_path}`
+  const startPollingVoiceover = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const resp = await axios.get(`${API_BASE}/projects/${scriptId}/voiceover`)
+        if (resp.data.status === 'ready') {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+          setVoiceover(resp.data)
+          await loadScenes()
+          setStep('timeline')
+        } else if (resp.data.status === 'error') {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+          setError('Voiceover generation failed')
+          setStep('no_voiceover')
+        }
+      } catch {}
+    }, 3000)
+
+    setTimeout(() => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+        if (step === 'generating') {
+          setError('Voiceover generation is taking longer than expected. Refresh to check status.')
+          setStep('no_voiceover')
+        }
+      }
+    }, 300000)
+  }
+
+  const handleRenderVideo = async (voiceoverId) => {
+    setError(null)
+    setStep('rendering')
+    try {
+      await axios.post(`${API_BASE}/projects/${scriptId}/render-video`, {
+        voiceover_id: voiceoverId,
+      })
+      startPollingVideo()
+    } catch (err) {
+      console.error('Error starting render:', err)
+      setError('Failed to start video render')
+      setStep('timeline')
     }
+  }
+
+  const startPollingVideo = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const resp = await axios.get(`${API_BASE}/projects/${scriptId}/video`)
+        if (resp.data && resp.data.status === 'approved') {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+          setVideo(resp.data)
+          setStep('video_ready')
+        } else if (resp.data && resp.data.status === 'rejected') {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+          setError('Video render failed. Check logs and try again.')
+          setStep('timeline')
+        }
+      } catch {}
+    }, 5000)
+
+    setTimeout(() => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+        if (step === 'rendering') {
+          setError('Render is taking longer than expected. Refresh to check status.')
+        }
+      }
+    }, 300000)
+  }
+
+  const getVideoUrl = (v) => {
+    if (v.url) return v.url
+    if (v.file_path) return `/storage/${v.file_path}`
     return null
   }
 
@@ -80,52 +174,119 @@ function VideoViewer({ scriptId, onBack }) {
         </button>
       </div>
 
-      {loading ? (
-        <p>Loading...</p>
-      ) : !video ? (
+      {error && (
+        <div style={{
+          padding: '12px 16px', marginBottom: '16px',
+          background: 'var(--danger)', color: 'white',
+          borderRadius: '6px', fontSize: '14px',
+        }}>
+          {error}
+        </div>
+      )}
+
+      {step === 'loading' && (
+        <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
+      )}
+
+      {step === 'no_voiceover' && (
         <div>
-          <p>No video created yet.</p>
+          <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
+            Generate a voiceover from your project script. The AI will narrate the full script
+            and automatically compute timing for each scene.
+          </p>
           <button
             className="btn btn-primary"
-            onClick={handleCreateVideo}
-            disabled={creating}
+            onClick={handleGenerateVoiceover}
+            style={{ padding: '10px 24px', fontSize: '15px' }}
           >
-            {creating ? 'Creating Video...' : 'Create Video'}
+            Generate Voiceover
           </button>
         </div>
-      ) : (
+      )}
+
+      {step === 'generating' && (
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{
+            width: '48px', height: '48px', margin: '0 auto 16px',
+            border: '4px solid var(--border)',
+            borderTopColor: 'var(--primary)',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }} />
+          <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '8px' }}>
+            Generating Voiceover...
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+            Sending full script to ElevenLabs for narration. This may take a minute.
+          </p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
+      {step === 'timeline' && voiceover && (
         <div>
-          {video.status === 'pending' && (
-            <div style={{ padding: '20px', background: 'var(--warning)', color: 'var(--warning-text)', borderRadius: '4px', marginBottom: '20px' }}>
-              <p>Video is being created. Please wait...</p>
-            </div>
-          )}
+          <h3 style={{ marginBottom: '12px', fontSize: '16px' }}>Timeline Editor</h3>
+          <p style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '13px' }}>
+            Drag scene boundaries to adjust timing. Click a divider to set transition type and duration.
+            Toggle captions and choose a style before rendering.
+          </p>
+          <TimelineEditor
+            projectId={scriptId}
+            voiceover={voiceover}
+            scenes={scenes}
+            onRenderVideo={handleRenderVideo}
+            onTimingsChanged={() => {}}
+          />
+        </div>
+      )}
 
-          {video.status === 'approved' && (
-            <div>
-              <h3>Final Video</h3>
-              {getVideoUrl(video) ? (
-                <video
-                  controls
-                  style={{ width: '100%', maxWidth: '800px', marginTop: '20px' }}
-                  src={getVideoUrl(video)}
-                >
-                  Your browser does not support the video tag.
-                </video>
-              ) : (
-                <p>Video file not found</p>
-              )}
-            </div>
-          )}
+      {step === 'rendering' && (
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <div style={{
+            width: '48px', height: '48px', margin: '0 auto 16px',
+            border: '4px solid var(--border)',
+            borderTopColor: 'var(--success)',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }} />
+          <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '8px' }}>
+            Rendering Video...
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+            Assembling slideshow with voiceover, transitions, and captions. This may take a few minutes.
+          </p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
 
-          {video.status === 'rejected' && (
-            <div style={{ padding: '20px', background: 'var(--danger)', color: 'white', borderRadius: '4px' }}>
-              <p>Video creation failed. Please try again.</p>
-              <button className="btn btn-primary" onClick={handleCreateVideo}>
-                Retry
-              </button>
-            </div>
+      {step === 'video_ready' && video && (
+        <div>
+          <h3 style={{ marginBottom: '12px' }}>Final Video</h3>
+          {getVideoUrl(video) ? (
+            <video
+              controls
+              style={{ width: '100%', maxWidth: '900px', borderRadius: '8px', marginBottom: '16px' }}
+              src={getVideoUrl(video)}
+            >
+              Your browser does not support the video tag.
+            </video>
+          ) : (
+            <p>Video file not available.</p>
           )}
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setStep('timeline')}
+            >
+              Re-edit Timeline
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleGenerateVoiceover}
+            >
+              Regenerate Voiceover
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -133,4 +294,3 @@ function VideoViewer({ scriptId, onBack }) {
 }
 
 export default VideoViewer
-

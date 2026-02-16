@@ -1,7 +1,7 @@
 """
 Database models for the video creator workflow
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -28,6 +28,7 @@ class Project(Base):
     
     scenes = relationship("Scene", back_populates="project", cascade="all, delete-orphan")
     videos = relationship("Video", back_populates="project", cascade="all, delete-orphan")
+    voiceovers = relationship("Voiceover", back_populates="project", cascade="all, delete-orphan")
     script_iterations = relationship("ScriptIteration", back_populates="project", cascade="all, delete-orphan", order_by="ScriptIteration.round_number")
 
 
@@ -151,10 +152,30 @@ class Video(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    voiceover_id = Column(Integer, ForeignKey("voiceovers.id"), nullable=True)
     file_path = Column(String, nullable=True)
     url = Column(String, nullable=True)
     status = Column(String, default=Status.PENDING.value)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     project = relationship("Project", back_populates="videos")
+    voiceover = relationship("Voiceover", back_populates="videos")
+
+
+class Voiceover(Base):
+    __tablename__ = "voiceovers"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    audio_file_path = Column(String, nullable=True)
+    alignment_data = Column(Text, nullable=True)
+    scene_timings = Column(Text, nullable=True)
+    total_duration = Column(Float, nullable=True)
+    captions_enabled = Column(Boolean, default=False)
+    caption_style = Column(String, default="word_highlight")
+    status = Column(String, default=Status.PENDING.value)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    project = relationship("Project", back_populates="voiceovers")
+    videos = relationship("Video", back_populates="voiceover")
 

@@ -8,6 +8,14 @@ echo "Starting AI Video Creator..."
 # Use virtual environment Python if it exists (so uvicorn/celery are found)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Add FFmpeg to PATH if installed via winget
+FFMPEG_WINGET_DIR="$(ls -d /c/Users/*/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg*/ffmpeg-*/bin 2>/dev/null | head -1)"
+if [[ -n "$FFMPEG_WINGET_DIR" ]]; then
+    export PATH="$PATH:$FFMPEG_WINGET_DIR"
+    echo "Added FFmpeg to PATH from winget: $FFMPEG_WINGET_DIR"
+fi
+
 if [[ -d ".venv" ]]; then
     if [[ -f ".venv/Scripts/python" ]]; then
         # Windows

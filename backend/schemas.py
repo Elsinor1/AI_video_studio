@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response validation
 """
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -283,6 +283,7 @@ class VideoBase(BaseModel):
 class Video(VideoBase):
     id: int
     project_id: int
+    voiceover_id: Optional[int] = None
     file_path: Optional[str] = None
     url: Optional[str] = None
     status: str
@@ -290,4 +291,46 @@ class Video(VideoBase):
     
     class Config:
         from_attributes = True
+
+
+# Voiceover schemas
+
+class SceneTimingEntry(BaseModel):
+    scene_id: int
+    start_time: float
+    end_time: float
+    transition_type: str = "cut"
+    transition_duration: float = 0.0
+
+
+class VoiceoverBase(BaseModel):
+    pass
+
+
+class Voiceover(VoiceoverBase):
+    id: int
+    project_id: int
+    audio_file_path: Optional[str] = None
+    scene_timings: Optional[str] = None
+    total_duration: Optional[float] = None
+    captions_enabled: bool = False
+    caption_style: str = "word_highlight"
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UpdateSceneTimings(BaseModel):
+    scene_timings: List[SceneTimingEntry]
+
+
+class UpdateCaptionSettings(BaseModel):
+    captions_enabled: bool
+    caption_style: str = "word_highlight"
+
+
+class RenderVideoRequest(BaseModel):
+    voiceover_id: int
 
