@@ -284,6 +284,50 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
     return descriptions[currentIndex]
   }
 
+  const handleInsertScene = async (afterOrder) => {
+    try {
+      await axios.post(`${API_BASE}/projects/${scriptId}/scenes/insert`, {
+        after_order: afterOrder,
+        text: '',
+      })
+      await loadScenes()
+    } catch (error) {
+      console.error('Error inserting scene:', error)
+      alert('Error inserting scene: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const handleDeleteScene = async (sceneId, sceneOrder) => {
+    if (!window.confirm(`Delete Scene ${sceneOrder}? This will permanently remove the scene and all its associated data (images, descriptions).`)) {
+      return
+    }
+    try {
+      await axios.delete(`${API_BASE}/scenes/${sceneId}`)
+      await loadScenes()
+    } catch (error) {
+      console.error('Error deleting scene:', error)
+      alert('Error deleting scene: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const InsertSceneButton = ({ afterOrder }) => (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0' }}>
+      <button
+        className="btn btn-secondary"
+        onClick={() => handleInsertScene(afterOrder)}
+        style={{
+          fontSize: '12px',
+          padding: '3px 14px',
+          opacity: 0.6,
+          borderStyle: 'dashed',
+        }}
+        title={`Insert a new scene ${afterOrder === 0 ? 'at the beginning' : `after Scene ${afterOrder}`}`}
+      >
+        + Insert scene
+      </button>
+    </div>
+  )
+
   const handleGenerateImage = async (sceneId) => {
     try {
       // If this scene is currently being edited, save the edits first
@@ -331,88 +375,93 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
         </div>
       </div>
 
-      {/* Segmentation preview - collapsed by default */}
-      <div style={{ marginBottom: '12px', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-surface-alt)' }}>
-        <button
-          type="button"
-          onClick={() => setSegmentationPreviewOpen(!segmentationPreviewOpen)}
-          style={{
-            width: '100%',
-            padding: '12px 16px',
-            textAlign: 'left',
-            fontWeight: 'bold',
-            background: segmentationPreviewOpen ? 'var(--info)' : 'var(--bg-hover)',
-            color: segmentationPreviewOpen ? 'white' : 'var(--text-primary)',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          Segmentation preview
-          <span style={{ fontSize: '14px', fontWeight: 'normal', opacity: 0.9 }}>
-            {segmentationPreviewOpen ? '▼' : '▶'}
-          </span>
-        </button>
-        {segmentationPreviewOpen && (
-          <div style={{ padding: '16px' }}>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-              Full script with segment boundaries. Put <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> on its own line between scenes.
-              Move a line with <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> to change boundaries; add more <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> to split into more scenes.
-            </p>
-            <textarea
-              value={segmentationPreview}
-              onChange={(e) => setSegmentationPreview(e.target.value)}
-              placeholder="Scene 1 text...&#10;&#10;---&#10;&#10;Scene 2 text..."
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                fontFamily: 'inherit',
-                fontSize: '14px',
-                lineHeight: '1.5',
-                padding: '12px',
-                border: '1px solid var(--border)',
-                borderRadius: '4px',
-                resize: 'vertical',
-                background: 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-              }}
-            />
-            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button
-                className="btn btn-primary"
-                onClick={handleApplySegmentationPreview}
-                disabled={applyingPreview}
-              >
-                {applyingPreview ? 'Updating...' : 'Update scenes from preview'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={loadSegmentationPreview}
-                disabled={applyingPreview}
-              >
-                Reset to current
-              </button>
+      {/* Segmentation preview - only shown when no scenes exist yet */}
+      {scenes.length === 0 && (
+        <div style={{ marginBottom: '12px', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-surface-alt)' }}>
+          <button
+            type="button"
+            onClick={() => setSegmentationPreviewOpen(!segmentationPreviewOpen)}
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              textAlign: 'left',
+              fontWeight: 'bold',
+              background: segmentationPreviewOpen ? 'var(--info)' : 'var(--bg-hover)',
+              color: segmentationPreviewOpen ? 'white' : 'var(--text-primary)',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            Segmentation preview
+            <span style={{ fontSize: '14px', fontWeight: 'normal', opacity: 0.9 }}>
+              {segmentationPreviewOpen ? '▼' : '▶'}
+            </span>
+          </button>
+          {segmentationPreviewOpen && (
+            <div style={{ padding: '16px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                Full script with segment boundaries. Put <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> on its own line between scenes.
+                Move a line with <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> to change boundaries; add more <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: '4px' }}>---</code> to split into more scenes.
+              </p>
+              <textarea
+                value={segmentationPreview}
+                onChange={(e) => setSegmentationPreview(e.target.value)}
+                placeholder="Scene 1 text...&#10;&#10;---&#10;&#10;Scene 2 text..."
+                style={{
+                  width: '100%',
+                  minHeight: '120px',
+                  fontFamily: 'inherit',
+                  fontSize: '14px',
+                  lineHeight: '1.5',
+                  padding: '12px',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  resize: 'vertical',
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+              <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleApplySegmentationPreview}
+                  disabled={applyingPreview}
+                >
+                  {applyingPreview ? 'Updating...' : 'Update scenes from preview'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={loadSegmentationPreview}
+                  disabled={applyingPreview}
+                >
+                  Reset to current
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <p>Loading scenes...</p>
       ) : scenes.length === 0 ? (
         <p>No scenes yet. Scenes will appear here after script segmentation completes.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {scenes.map((scene) => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {/* Insert button before first scene */}
+          <InsertSceneButton afterOrder={0} />
+          {scenes.map((scene, index) => {
             const images = sceneImages[scene.id] || []
             const displayImage = images[0]
             const imageUrl = displayImage ? getImageUrl(displayImage) : null
 
             return (
-              <div key={scene.id} className="scene-item" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'var(--bg-surface-alt)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <React.Fragment key={scene.id}>
+              <div className="scene-item" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'var(--bg-surface-alt)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                 {/* Top: Scene header with order + status */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <h3 style={{ margin: 0, fontSize: '18px' }}>Scene {scene.order}</h3>
@@ -421,6 +470,14 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
                       Open →
                     </button>
                   )}
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleDeleteScene(scene.id, scene.order)}
+                    style={{ marginLeft: 'auto', color: 'var(--danger, #e74c3c)', fontSize: '13px', padding: '4px 10px' }}
+                    title={`Delete Scene ${scene.order}`}
+                  >
+                    Delete
+                  </button>
                 </div>
 
                 {/* Scene text (wide) + Edit button to the right */}
@@ -528,6 +585,9 @@ function SceneEditor({ scriptId, onBack, onNext, onOpenScene }) {
                   </div>
                 )}
               </div>
+              {/* Insert button after each scene */}
+              <InsertSceneButton afterOrder={scene.order} />
+              </React.Fragment>
             )
           })}
         </div>

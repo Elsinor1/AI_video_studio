@@ -231,6 +231,26 @@ def get_scenes(project_id: int, db: Session = Depends(get_db)):
     return crud.get_scenes_by_project(db=db, project_id=project_id)
 
 
+@app.post("/api/projects/{project_id}/scenes/insert", response_model=schemas.Scene)
+def insert_scene(project_id: int, body: schemas.InsertSceneRequest, db: Session = Depends(get_db)):
+    """Insert a new scene at a specific position (after_order=0 inserts at beginning)"""
+    project = crud.get_project(db=db, project_id=project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    new_scene = crud.insert_scene_at(db=db, project_id=project_id, after_order=body.after_order, text=body.text)
+    return new_scene
+
+
+@app.delete("/api/scenes/{scene_id}")
+def delete_scene(scene_id: int, db: Session = Depends(get_db)):
+    """Delete a single scene and renumber remaining scenes"""
+    scene = crud.get_scene(db=db, scene_id=scene_id)
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    crud.delete_scene(db=db, scene_id=scene_id)
+    return {"message": "Scene deleted successfully"}
+
+
 @app.put("/api/scenes/{scene_id}", response_model=schemas.Scene)
 def update_scene(scene_id: int, scene: schemas.SceneUpdate, db: Session = Depends(get_db)):
     """Update a scene"""

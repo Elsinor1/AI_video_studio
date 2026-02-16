@@ -65,10 +65,60 @@ def get_scenes_by_project(db: Session, project_id: int):
 
 
 def delete_scenes_by_project(db: Session, project_id: int):
-    """Delete all scenes for a project (e.g. before re-segmenting). Cascades to visual_descriptions and images."""
-    for scene in db.query(models.Scene).filter(models.Scene.project_id == project_id).all():
+    """Delete all scenes for a project (e.g. before re-segmenting).
+    Clears approved_image_id and current_visual_description_id first to avoid circular FK errors,
+    then cascades to visual_descriptions and images."""
+    scenes = db.query(models.Scene).filter(models.Scene.project_id == project_id).all()
+    for scene in scenes:
+        scene.approved_image_id = None
+        scene.current_visual_description_id = None
+    db.flush()
+    for scene in scenes:
         db.delete(scene)
     db.commit()
+
+
+def insert_scene_at(db: Session, project_id: int, after_order: int, text: str = ""):
+    """Insert a new scene after the given order position.
+    after_order=0 inserts at the beginning. Shifts all subsequent scenes' order +1."""
+    db.query(models.Scene).filter(
+        models.Scene.project_id == project_id,
+        models.Scene.order > after_order,
+    ).update({models.Scene.order: models.Scene.order + 1})
+    db.flush()
+    new_scene = models.Scene(
+        project_id=project_id,
+        text=text,
+        order=after_order + 1,
+    )
+    db.add(new_scene)
+    db.commit()
+    db.refresh(new_scene)
+    return new_scene
+
+
+def delete_scene(db: Session, scene_id: int):
+    """Delete a single scene. Clears circular FK refs first, then deletes and renumbers remaining scenes."""
+    scene = db.query(models.Scene).filter(models.Scene.id == scene_id).first()
+    if not scene:
+        return False
+    project_id = scene.project_id
+    scene.approved_image_id = None
+    scene.current_visual_description_id = None
+    db.flush()
+    db.delete(scene)
+    db.flush()
+    remaining = (
+        db.query(models.Scene)
+        .filter(models.Scene.project_id == project_id)
+        .order_by(models.Scene.order)
+        .all()
+    )
+    for idx, s in enumerate(remaining, start=1):
+        if s.order != idx:
+            s.order = idx
+    db.commit()
+    return True
 
 
 def update_scene(db: Session, scene_id: int, scene: schemas.SceneUpdate):

@@ -70,6 +70,9 @@ Write a full script that is ready for video production. Use clear scene descript
 # Sliding window: only last N feedback texts are sent to the API (no full scripts in history)
 SCRIPT_ITERATION_WINDOW_SIZE = 5
 
+# Scene description max length (keeps room for visual style when building image prompt; Leonardo limit is 1500)
+SCENE_DESCRIPTION_MAX_CHARS = 1000
+
 
 def revise_script_with_feedback(
     current_script: str,
@@ -240,38 +243,28 @@ Use the previous scene description as context. The new scene should feel like a 
             # If JSON parsing fails, use params as-is
             style_instruction = f"\n\nScene Style: {scene_style_params}"
     
-    prompt = f"""
-    {previous_instruction}
+    prompt = f"""CRITICAL: Your response MUST be under 800 characters. Be concise—prioritize the most important visual elements.
+{previous_instruction}
 
-    New scene text:
-    {scene_text}
-    {style_instruction if style_instruction else ''}
+New scene text:
+{scene_text}
+{style_instruction if style_instruction else ''}
 
-    Generate a vivid, flowing scene description written structured with labels. The description should include:
+Generate a vivid scene description with these labels (keep each section brief):
+- Characters: Who is in the scene and key actions/expressions
+- Scene description: Main visual action and setting (2-3 sentences max)
+- Surrounding: Key environment elements
+- Main emotion / atmosphere: Mood in a few words
+- Lighting and mood: Brief lighting note
+- Camera angle/perspective: One phrase
 
-    - Who is in the scene and what they're doing (characters, their actions, expressions, emotions)
-    - The setting and environment (where the scene takes place, key objects, atmosphere)
-    - Visual composition (camera angle, framing, perspective - but describe it naturally)
-    - Lighting and mood (how the scene is lit, the emotional tone)
-    - Key visual elements that should be emphasized
-
-
-    Return only the scene description, no explanation or additional text. 
-    Example of well formatted output:
-
-    - Characters: Main character and subtle environmental influence,  shadow of another person or gentle hint of characters boss present
-    - Scene description: The main character sits hunched over a cluttered desk in a dimly lit tech lab, his face illuminated by the focused glow of a single desk lamp. Blueprints cover the walls behind him, and equations are scribbled on a chalkboard in the background. His fingers move deftly across a project model, his expression showing deep concentration mixed with occasional flashes of excitement. Tears of both frustration and joy well up in his eyes, which he quickly wipes away. a mix of struggle and breakthrough, with long shadows cast by the focused lighting creating a cinematic, emotional atmosphere
-    - Surrounding: Workplace, desk or office environment 
-    - Main emotion: Calm, attentiveness The atmosphere: Warm and contemplative, melancholic yet gentle
-    - Lighting and mood: Low-key, soft shadows, gentle falloff.
-    - Camera angle/perspective: Medium shot
-    """
+Return ONLY the scene description, no explanation. Stay under 800 characters."""
 
     try:
         print("\n" + "=" * 60)
         print("SCENE DESCRIPTION GENERATION PROMPT:")
         print("=" * 60)
-        print("System:", "You are a visual director. Analyze the following new scene text and generate a detailed, natural scene description of what should be shown. Return a maximum of 1000 characters.")
+        print("System:", "You are a visual director. Generate a concise scene description. STRICT LIMIT: under 800 characters.")
         print("-" * 60)
         print("User prompt:")
         print(prompt)
@@ -283,14 +276,21 @@ Use the previous scene description as context. The new scene should feel like a 
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a visual director. Analyze the following new scene text and generate a detailed, natural scene description of what should be shown. Return a maximum of 1000 characters.",
+                    "content": "You are a visual director. Generate concise, vivid scene descriptions. STRICT: Your response must be under 800 characters. Be brief—every word must earn its place. Don't specify gender of main character.",
                 },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
+            max_tokens=350,
         )
-        print(response.choices[0].message.content.strip())
-        return response.choices[0].message.content.strip()
+        result = response.choices[0].message.content.strip()
+        # Safety: truncate if model overshoots
+        if len(result) > SCENE_DESCRIPTION_MAX_CHARS:
+            orig_len = len(result)
+            result = result[:SCENE_DESCRIPTION_MAX_CHARS - 3] + "..."
+            print(f"[WORKFLOW] Scene description truncated from {orig_len} to {SCENE_DESCRIPTION_MAX_CHARS} chars")
+        print(result)
+        return result
     except Exception as e:
         print(f"Error generating scene description: {e}")
         # Fallback: return a simple description
@@ -302,7 +302,7 @@ def iterate_scene_description(current_description: str, user_comments: str) -> s
     Iterate on a scene description based on user feedback/comments.
     Takes the current description + user comments and generates an updated description.
     """
-    prompt = f"""You are a visual director. Refine this scene description based on the user's feedback. Return a maximum of 1000 characters.
+    prompt = f"""CRITICAL: Your response MUST be under 800 characters. Be concise.
 
 Current scene description:
 {current_description}
@@ -310,19 +310,25 @@ Current scene description:
 User feedback / requested changes:
 {user_comments}
 
-Generate an updated scene description that incorporates the user's feedback. Keep the same structured format (labels like Characters, Scene description, Surrounding, etc.) and maintain vivid, cinematic detail. Return only the updated scene description, no explanation or additional text."""
+Generate an updated scene description that incorporates the feedback. Keep the structured format (Characters, Scene description, etc.) but stay brief. Return only the description, no explanation. Under 800 characters. Don't specify gender of main character."""
 
     try:
         client = get_openai_client()
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a visual director. Refine scene descriptions based on feedback while preserving structure and quality."},
+                {"role": "system", "content": "You are a visual director. Refine scene descriptions based on feedback. STRICT: Under 800 characters. Be concise."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
+            max_tokens=350,
         )
-        return response.choices[0].message.content.strip()
+        result = response.choices[0].message.content.strip()
+        if len(result) > SCENE_DESCRIPTION_MAX_CHARS:
+            orig_len = len(result)
+            result = result[:SCENE_DESCRIPTION_MAX_CHARS - 3] + "..."
+            print(f"[WORKFLOW] Iterated description truncated from {orig_len} to {SCENE_DESCRIPTION_MAX_CHARS} chars")
+        return result
     except Exception as e:
         print(f"Error iterating scene description: {e}")
         raise

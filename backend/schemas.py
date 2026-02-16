@@ -63,6 +63,12 @@ class ScriptIteration(BaseModel):
         from_attributes = True
 
 
+class InsertSceneRequest(BaseModel):
+    """Request to insert a new scene at a specific position"""
+    after_order: int  # 0 = insert at beginning; N = insert after scene with order N
+    text: str = ""
+
+
 class SegmentationPreviewResponse(BaseModel):
     """Full script with segment boundaries (--- on its own line). Edit and PUT to update scenes."""
     preview_text: str
