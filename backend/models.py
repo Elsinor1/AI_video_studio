@@ -173,6 +173,7 @@ class Voiceover(Base):
     total_duration = Column(Float, nullable=True)
     captions_enabled = Column(Boolean, default=False)
     caption_style = Column(String, default="word_highlight")
+    caption_groups = Column(Text, nullable=True)
     status = Column(String, default=Status.PENDING.value)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

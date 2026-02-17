@@ -22,7 +22,18 @@ function VideoViewer({ scriptId, onBack }) {
   const loadScenes = async () => {
     try {
       const resp = await axios.get(`${API_BASE}/projects/${scriptId}/scenes`)
-      setScenes(resp.data)
+      const scenesData = resp.data
+      const scenesWithImages = await Promise.all(
+        scenesData.map(async (scene) => {
+          try {
+            const imgResp = await axios.get(`${API_BASE}/scenes/${scene.id}/images`)
+            return { ...scene, _images: imgResp.data }
+          } catch {
+            return { ...scene, _images: [] }
+          }
+        })
+      )
+      setScenes(scenesWithImages)
     } catch {
       setScenes([])
     }

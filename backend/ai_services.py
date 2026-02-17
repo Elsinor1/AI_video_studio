@@ -756,6 +756,43 @@ def _group_chars_into_words(alignment: dict) -> List[dict]:
     return words
 
 
+def auto_group_captions(words: List[dict]) -> List[int]:
+    """Use LLM to group words into natural caption phrases. Returns boundary indices."""
+    numbered = " ".join(f"[{i}]{w['word']}" for i, w in enumerate(words))
+
+    prompt = f"""You are a subtitle/caption editor. Group these numbered words into natural caption phrases for video subtitles.
+
+Rules:
+- Each phrase should be 3-7 words, readable as a natural spoken unit
+- Break at punctuation (commas, periods, question marks), clause boundaries, and natural pauses
+- Never break in the middle of a name, number, or tight phrase
+- Return ONLY a comma-separated list of word indices where each NEW group STARTS
+- The first group always starts at index 0 (do NOT include 0 in your list)
+- Example: if groups are words 0-4, 5-8, 9-12 then return: 5, 9
+
+Words: {numbered}"""
+
+    try:
+        client = get_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        boundaries = []
+        for token in raw.replace("\n", ",").split(","):
+            token = token.strip()
+            if token.isdigit():
+                boundaries.append(int(token))
+        boundaries = sorted(set(b for b in boundaries if 0 < b < len(words)))
+        print(f"[AUTO-GROUP] LLM returned {len(boundaries)} boundaries for {len(words)} words")
+        return boundaries
+    except Exception as e:
+        print(f"[AUTO-GROUP] LLM error, falling back to default: {e}")
+        return list(range(5, len(words), 5))
+
+
 def _format_ass_time(seconds: float) -> str:
     """Format seconds to ASS timestamp H:MM:SS.cc"""
     h = int(seconds // 3600)
@@ -798,7 +835,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_size = 5
         for chunk_start in range(0, len(words), chunk_size):
             chunk = words[chunk_start:chunk_start + chunk_size]
-            chunk_begin = chunk[0]["start"]
             chunk_end = chunk[-1]["end"]
 
             for wi, w in enumerate(chunk):
@@ -809,8 +845,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     else:
                         line_parts.append(r"{\rDim}" + w2["word"] + r"{\rDefault}")
                 text = " ".join(line_parts)
-                start_t = _format_ass_time(w["start"])
-                end_t = _format_ass_time(w["end"])
+
+                display_start = w["start"]
+                if wi < len(chunk) - 1:
+                    display_end = chunk[wi + 1]["start"]
+                else:
+                    display_end = chunk_end
+
+                start_t = _format_ass_time(display_start)
+                end_t = _format_ass_time(display_end)
                 events.append(f"Dialogue: 0,{start_t},{end_t},Default,,0,0,0,,{text}")
 
     else:

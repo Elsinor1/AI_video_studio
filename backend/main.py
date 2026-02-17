@@ -43,6 +43,12 @@ try:
             with engine.begin() as conn:
                 conn.execute(sa_text("ALTER TABLE videos ADD COLUMN voiceover_id INTEGER REFERENCES voiceovers(id)"))
             print("[MIGRATE] Added voiceover_id column to videos table")
+    if 'voiceovers' in tables:
+        vo_cols = [col['name'] for col in inspector.get_columns('voiceovers')]
+        if 'caption_groups' not in vo_cols:
+            with engine.begin() as conn:
+                conn.execute(sa_text("ALTER TABLE voiceovers ADD COLUMN caption_groups TEXT"))
+            print("[MIGRATE] Added caption_groups column to voiceovers table")
 except Exception:
     pass  # Ignore inspection errors during startup
 
@@ -627,6 +633,117 @@ def get_project_voiceover(project_id: int, db: Session = Depends(get_db)):
     if not voiceover:
         raise HTTPException(status_code=404, detail="No voiceover found")
     return voiceover
+
+
+def _get_words_and_boundaries(voiceover):
+    """Helper: get alignment words and boundary indices from a voiceover record."""
+    import json as _json
+    from .ai_services import _group_chars_into_words
+    alignment = _json.loads(voiceover.alignment_data)
+    words = _group_chars_into_words(alignment)
+    if voiceover.caption_groups:
+        raw = _json.loads(voiceover.caption_groups)
+        # Guard: old format was list of dicts; new format is list of ints
+        if raw and isinstance(raw, list) and isinstance(raw[0], int):
+            boundaries = raw
+        else:
+            boundaries = list(range(5, len(words), 5))
+    else:
+        boundaries = list(range(5, len(words), 5))
+    return words, boundaries
+
+
+def _build_phrases(words, boundaries):
+    """Helper: build phrase list from words + boundary indices."""
+    splits = [0] + sorted(boundaries) + [len(words)]
+    phrases = []
+    for i in range(len(splits) - 1):
+        chunk = words[splits[i]:splits[i + 1]]
+        if chunk:
+            phrases.append({
+                "text": " ".join(w["word"] for w in chunk),
+                "start": chunk[0]["start"],
+                "end": chunk[-1]["end"],
+            })
+    return phrases
+
+
+@app.get("/api/projects/{project_id}/voiceover/words")
+def get_voiceover_words(project_id: int, db: Session = Depends(get_db)):
+    """Return the full word list with indices and timing for the caption editor."""
+    import json as _json
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+    if not voiceover.alignment_data:
+        return {"words": [], "boundaries": []}
+
+    words, boundaries = _get_words_and_boundaries(voiceover)
+    return {
+        "words": [{"id": i, "word": w["word"], "start": w["start"], "end": w["end"]}
+                  for i, w in enumerate(words)],
+        "boundaries": boundaries,
+    }
+
+
+@app.get("/api/projects/{project_id}/voiceover/caption-phrases")
+def get_caption_phrases(project_id: int, db: Session = Depends(get_db)):
+    """Return caption phrases with timestamps, derived from words + boundaries."""
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+    if not voiceover.alignment_data:
+        return []
+
+    words, boundaries = _get_words_and_boundaries(voiceover)
+    if not words:
+        return []
+    return _build_phrases(words, boundaries)
+
+
+@app.put("/api/projects/{project_id}/voiceover/caption-boundaries")
+def save_caption_boundaries(project_id: int, body: dict, db: Session = Depends(get_db)):
+    """Save caption group boundaries as an array of word indices."""
+    import json as _json
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+    if not voiceover.alignment_data:
+        raise HTTPException(status_code=400, detail="No alignment data")
+
+    from .ai_services import _group_chars_into_words
+    alignment = _json.loads(voiceover.alignment_data)
+    words = _group_chars_into_words(alignment)
+    total = len(words)
+
+    raw = body.get("boundaries", [])
+    boundaries = sorted(set(int(b) for b in raw if 0 < int(b) < total))
+
+    crud.update_voiceover(db=db, voiceover_id=voiceover.id,
+                          caption_groups=_json.dumps(boundaries))
+    return {"message": "Caption boundaries saved", "boundaries": boundaries}
+
+
+@app.post("/api/projects/{project_id}/voiceover/auto-group-captions")
+def auto_group_captions_endpoint(project_id: int, db: Session = Depends(get_db)):
+    """Use LLM to intelligently group caption words into natural phrases."""
+    import json as _json
+    voiceover = crud.get_voiceover_by_project(db=db, project_id=project_id)
+    if not voiceover:
+        raise HTTPException(status_code=404, detail="No voiceover found")
+    if not voiceover.alignment_data:
+        raise HTTPException(status_code=400, detail="No alignment data")
+
+    from .ai_services import _group_chars_into_words, auto_group_captions
+    alignment = _json.loads(voiceover.alignment_data)
+    words = _group_chars_into_words(alignment)
+    if not words:
+        raise HTTPException(status_code=400, detail="No words in alignment")
+
+    boundaries = auto_group_captions(words)
+    crud.update_voiceover(db=db, voiceover_id=voiceover.id,
+                          caption_groups=_json.dumps(boundaries))
+    return {"boundaries": boundaries}
 
 
 @app.put("/api/projects/{project_id}/voiceover/scene-timings")
