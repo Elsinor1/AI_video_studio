@@ -130,7 +130,7 @@ function VideoViewer({ scriptId, onBack }) {
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>Video</h2>
+        <h2>Complete video</h2>
         <button className="btn btn-secondary" onClick={onBack}>
           ← Back
         </button>
@@ -153,10 +153,10 @@ function VideoViewer({ scriptId, onBack }) {
       {step === 'no_voiceover' && (
         <div>
           <p style={{ color: 'var(--text-secondary)' }}>
-            No voiceover is ready yet. Go back to the Voiceover step to generate one first.
+            No voiceover is ready yet. Go back to the Video editor step to generate one first.
           </p>
           <button className="btn btn-secondary" onClick={onBack} style={{ marginTop: '12px' }}>
-            ← Go to Voiceover
+            ← Go to Video editor
           </button>
         </div>
       )}

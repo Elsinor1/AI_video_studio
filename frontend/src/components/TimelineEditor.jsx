@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
+import ReactDOM from 'react-dom'
 import axios from 'axios'
 import CaptionGroupEditor from './CaptionGroupEditor'
 
@@ -17,6 +18,9 @@ function TimelineEditor({
   onRenderVideo,
   onTimingsChanged,
   hideRenderButton,
+  sidebarContainerRef,
+  onTimeUpdate,
+  onCaptionSettingsChange,
 }) {
   const [timings, setTimings] = useState([])
   const [phrases, setPhrases] = useState([])
@@ -31,8 +35,10 @@ function TimelineEditor({
   const [savingCaptions, setSavingCaptions] = useState(false)
   const [dragging, setDragging] = useState(null)
   const [pxPerSecond, setPxPerSecond] = useState(PX_PER_SECOND_DEFAULT)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0)
 
   const [captionEditorOpen, setCaptionEditorOpen] = useState(false)
+  const captionEditorRef = useRef(null)
 
   const audioRef = useRef(null)
   const scrollRef = useRef(null)
@@ -59,6 +65,10 @@ function TimelineEditor({
     setCaptionAlignment(voiceover?.caption_alignment ?? 2)
     setCaptionMarginV(voiceover?.caption_margin_v ?? 60)
   }, [voiceover])
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackSpeed
+  }, [playbackSpeed, voiceover?.status])
 
   const loadPhrases = useCallback(() => {
     if (projectId && voiceover?.status === 'ready') {
@@ -92,13 +102,16 @@ function TimelineEditor({
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime)
+      const t = audioRef.current.currentTime
+      setCurrentTime(t)
+      onTimeUpdate?.(t)
     }
   }
 
   const handleAudioEnded = () => {
     setPlaying(false)
     setCurrentTime(0)
+    onTimeUpdate?.(0)
   }
 
   // Auto-scroll to keep playhead visible during playback
@@ -122,6 +135,7 @@ function TimelineEditor({
     const newTime = Math.max(0, Math.min(totalDuration, x / pxPerSecond))
     audioRef.current.currentTime = newTime
     setCurrentTime(newTime)
+    onTimeUpdate?.(newTime)
   }
 
   const getSceneImageUrl = (sceneId) => {
@@ -266,12 +280,14 @@ function TimelineEditor({
   const saveCaptionSettings = async (overrides = {}) => {
     setSavingCaptions(true)
     try {
-      await axios.put(`${API_BASE}/projects/${projectId}/voiceover/caption-settings`, {
+      const payload = {
         captions_enabled: overrides.captions_enabled ?? captionsEnabled,
         caption_style: overrides.caption_style ?? captionStyle,
         caption_alignment: overrides.caption_alignment ?? captionAlignment,
         caption_margin_v: overrides.caption_margin_v ?? captionMarginV,
-      })
+      }
+      await axios.put(`${API_BASE}/projects/${projectId}/voiceover/caption-settings`, payload)
+      onCaptionSettingsChange?.(payload)
     } catch (error) {
       console.error('Error saving caption settings:', error)
     } finally {
@@ -351,6 +367,20 @@ function TimelineEditor({
         </button>
         <span style={{ fontFamily: 'monospace', fontSize: '13px', color: 'var(--text-secondary)' }}>
           {formatTime(currentTime)} / {formatTime(totalDuration)}
+        </span>
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Speed</span>
+        <input
+          type="range"
+          min={0.5}
+          max={2}
+          step={0.25}
+          value={playbackSpeed}
+          onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+          style={{ width: '80px' }}
+          title="Playback speed"
+        />
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: '32px' }}>
+          {playbackSpeed}x
         </span>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Zoom</span>
@@ -624,204 +654,276 @@ function TimelineEditor({
         </div>
       </div>
 
-      {/* Scene animation / effect panel */}
-      {selectedSceneIndex !== null && selectedSceneIndex < timings.length && (
-        <div style={{
-          padding: '10px 16px', background: 'var(--bg-surface-alt)',
-          borderRadius: '8px', border: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
-          marginBottom: '10px',
-        }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-            Scene {selectedSceneIndex + 1}
-          </span>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>Animation:</span>
-            <select
-              value={timings[selectedSceneIndex]?.image_animation || 'none'}
-              onChange={(e) => handleAnimationChange(selectedSceneIndex, e.target.value === 'none' ? null : e.target.value)}
-              style={{
-                padding: '4px 8px', borderRadius: '4px',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-surface)', color: 'var(--text-primary)',
-                fontSize: '13px',
-              }}
-            >
-              <option value="none">None</option>
-              <option value="zoom_in">Slow zoom in</option>
-              <option value="zoom_out">Slow zoom out</option>
-              <option value="pan_left">Pan left</option>
-              <option value="pan_right">Pan right</option>
-              <option value="ken_burns_in">Ken Burns in</option>
-              <option value="ken_burns_out">Ken Burns out</option>
-            </select>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-            <span style={{ color: 'var(--text-secondary)' }}>Effect:</span>
-            <select
-              value={timings[selectedSceneIndex]?.image_effect || 'none'}
-              onChange={(e) => handleEffectChange(selectedSceneIndex, e.target.value === 'none' ? null : e.target.value)}
-              style={{
-                padding: '4px 8px', borderRadius: '4px',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-surface)', color: 'var(--text-primary)',
-                fontSize: '13px',
-              }}
-            >
-              <option value="none">None</option>
-              <option value="fade_in">Fade in</option>
-              <option value="vignette">Vignette</option>
-            </select>
-          </label>
-        </div>
-      )}
-
-      {/* Transition panel */}
-      {selectedDivider !== null && selectedDivider < timings.length - 1 && (
-        <div style={{
-          padding: '10px 16px', background: 'var(--bg-surface-alt)',
-          borderRadius: '8px', border: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
-        }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-            Transition: Scene {selectedDivider + 1} &rarr; {selectedDivider + 2}
-          </span>
-          <select
-            value={timings[selectedDivider]?.transition_type || 'cut'}
-            onChange={(e) => handleTransitionTypeChange(selectedDivider, e.target.value)}
-            style={{
-              padding: '4px 8px', borderRadius: '4px',
-              border: '1px solid var(--border)',
-              background: 'var(--bg-surface)', color: 'var(--text-primary)',
-              fontSize: '13px',
-            }}
-          >
-            <option value="cut">Cut</option>
-            <option value="crossfade">Crossfade</option>
-            <option value="fade_to_black">Fade to Black</option>
-          </select>
-
-          {timings[selectedDivider]?.transition_type !== 'cut' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Duration:</span>
-              <input
-                type="range"
-                min="0.1" max="2.0" step="0.1"
-                value={timings[selectedDivider]?.transition_duration || 0.5}
-                onChange={(e) => handleTransitionDurationChange(selectedDivider, e.target.value)}
-                onMouseUp={handleTransitionDurationCommit}
-                style={{ width: '120px' }}
-              />
-              <span style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                {(timings[selectedDivider]?.transition_duration || 0.5).toFixed(1)}s
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Caption controls */}
-      <div style={{
-        padding: '10px 16px', background: 'var(--bg-surface-alt)',
-        borderRadius: '8px', border: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
-      }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={captionsEnabled}
-            onChange={(e) => handleCaptionsToggle(e.target.checked)}
-            disabled={savingCaptions}
-          />
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-            Enable Captions
-          </span>
-        </label>
-
-        {captionsEnabled && (
+      {/* Panels: render into sidebar when sidebarContainerRef provided, else in place */}
+      {(() => {
+        const panelsContent = (
           <>
-            <select
-              value={captionStyle}
-              onChange={(e) => handleCaptionStyleChange(e.target.value)}
-              disabled={savingCaptions}
-              style={{
-                padding: '4px 8px', borderRadius: '4px',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-surface)', color: 'var(--text-primary)',
-                fontSize: '13px',
-              }}
-            >
-              <option value="word_highlight">Word-by-word highlight</option>
-              <option value="subtitle_chunks">Subtitle chunks</option>
-            </select>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              {captionStyle === 'word_highlight'
-                ? 'Each word highlights as it is spoken (karaoke style)'
-                : 'Standard subtitles, ~6 words at a time'}
-            </span>
-            <select
-              value={captionAlignment}
-              onChange={(e) => handleCaptionPositionChange(Number(e.target.value), null)}
-              disabled={savingCaptions}
-              style={{
-                padding: '4px 8px', borderRadius: '4px',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-surface)', color: 'var(--text-primary)',
-                fontSize: '13px',
-              }}
-              title="Caption position on screen"
-            >
-              <option value={1}>Bottom left</option>
-              <option value={2}>Bottom center</option>
-              <option value={3}>Bottom right</option>
-              <option value={4}>Middle left</option>
-              <option value={5}>Middle center</option>
-              <option value={6}>Middle right</option>
-              <option value={7}>Top left</option>
-              <option value={8}>Top center</option>
-              <option value={9}>Top right</option>
-            </select>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <label style={{ whiteSpace: 'nowrap' }}>Distance from edge:</label>
-              <input
-                type="range"
-                min={20}
-                max={120}
-                value={captionMarginV}
-                onChange={(e) => setCaptionMarginV(Number(e.target.value))}
-                onMouseUp={() => handleCaptionPositionChange(null, captionMarginVRef.current)}
-                onTouchEnd={() => handleCaptionPositionChange(null, captionMarginVRef.current)}
-                style={{ width: '80px' }}
-              />
-              <span style={{ fontFamily: 'monospace', minWidth: '28px' }}>{captionMarginV}px</span>
-            </span>
+            {/* Scene animation / effect panel */}
+            {selectedSceneIndex !== null && selectedSceneIndex < timings.length && (
+              <div style={{
+                padding: '10px 16px', background: 'var(--bg-surface-alt)',
+                borderRadius: '8px', border: '1px solid var(--border)',
+                display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '10px',
+              }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Scene {selectedSceneIndex + 1} — Effects
+                </span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Animation:</span>
+                  <select
+                    value={timings[selectedSceneIndex]?.image_animation || 'none'}
+                    onChange={(e) => handleAnimationChange(selectedSceneIndex, e.target.value === 'none' ? null : e.target.value)}
+                    style={{
+                      padding: '4px 8px', borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                      fontSize: '13px', flex: 1,
+                    }}
+                  >
+                    <option value="none">None</option>
+                    <option value="zoom_in">Slow zoom in</option>
+                    <option value="zoom_out">Slow zoom out</option>
+                    <option value="pan_left">Pan left</option>
+                    <option value="pan_right">Pan right</option>
+                    <option value="ken_burns_in">Ken Burns in</option>
+                    <option value="ken_burns_out">Ken Burns out</option>
+                  </select>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Effect:</span>
+                  <select
+                    value={timings[selectedSceneIndex]?.image_effect || 'none'}
+                    onChange={(e) => handleEffectChange(selectedSceneIndex, e.target.value === 'none' ? null : e.target.value)}
+                    style={{
+                      padding: '4px 8px', borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                      fontSize: '13px', flex: 1,
+                    }}
+                  >
+                    <option value="none">None</option>
+                    <option value="fade_in">Fade in</option>
+                    <option value="vignette">Vignette</option>
+                  </select>
+                </label>
+              </div>
+            )}
+
+            {/* Transition panel */}
+            {selectedDivider !== null && selectedDivider < timings.length - 1 && (
+              <div style={{
+                padding: '10px 16px', background: 'var(--bg-surface-alt)',
+                borderRadius: '8px', border: '1px solid var(--border)',
+                display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '10px',
+              }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Transition: Scene {selectedDivider + 1} → {selectedDivider + 2}
+                </span>
+                <select
+                  value={timings[selectedDivider]?.transition_type || 'cut'}
+                  onChange={(e) => handleTransitionTypeChange(selectedDivider, e.target.value)}
+                  style={{
+                    padding: '4px 8px', borderRadius: '4px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="cut">Cut</option>
+                  <option value="crossfade">Crossfade</option>
+                  <option value="fade_to_black">Fade to Black</option>
+                </select>
+                {timings[selectedDivider]?.transition_type !== 'cut' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Duration:</span>
+                    <input
+                      type="range"
+                      min="0.1" max="2.0" step="0.1"
+                      value={timings[selectedDivider]?.transition_duration || 0.5}
+                      onChange={(e) => handleTransitionDurationChange(selectedDivider, e.target.value)}
+                      onMouseUp={handleTransitionDurationCommit}
+                      style={{ width: '100%' }}
+                    />
+                    <span style={{ fontSize: '12px', fontFamily: 'monospace', color: 'var(--text-secondary)', minWidth: '36px' }}>
+                      {(timings[selectedDivider]?.transition_duration || 0.5).toFixed(1)}s
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Caption settings */}
+            <div style={{
+              padding: '10px 16px', background: 'var(--bg-surface-alt)',
+              borderRadius: '8px', border: '1px solid var(--border)',
+              display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '10px',
+            }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Caption settings
+              </span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={captionsEnabled}
+                  onChange={(e) => handleCaptionsToggle(e.target.checked)}
+                  disabled={savingCaptions}
+                />
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Enable Captions
+                </span>
+              </label>
+              {captionsEnabled && (
+                <>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Style</label>
+                  <select
+                    value={captionStyle}
+                    onChange={(e) => handleCaptionStyleChange(e.target.value)}
+                    disabled={savingCaptions}
+                    style={{
+                      padding: '6px 8px', borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                      fontSize: '13px', width: '100%',
+                    }}
+                  >
+                    <option value="word_highlight">Word-by-word highlight</option>
+                    <option value="subtitle_chunks">Subtitle chunks</option>
+                  </select>
+                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Position</label>
+                  <select
+                    value={captionAlignment}
+                    onChange={(e) => handleCaptionPositionChange(Number(e.target.value), null)}
+                    disabled={savingCaptions}
+                    style={{
+                      padding: '6px 8px', borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                      fontSize: '13px', width: '100%',
+                    }}
+                    title="Caption position on screen"
+                  >
+                    <option value={1}>Bottom left</option>
+                    <option value={2}>Bottom center</option>
+                    <option value={3}>Bottom right</option>
+                    <option value={4}>Middle left</option>
+                    <option value={5}>Middle center</option>
+                    <option value={6}>Middle right</option>
+                    <option value={7}>Top left</option>
+                    <option value={8}>Top center</option>
+                    <option value={9}>Top right</option>
+                  </select>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Margin:</label>
+                    <input
+                      type="range"
+                      min={20}
+                      max={120}
+                      value={captionMarginV}
+                      onChange={(e) => setCaptionMarginV(Number(e.target.value))}
+                      onMouseUp={() => handleCaptionPositionChange(null, captionMarginVRef.current)}
+                      onTouchEnd={() => handleCaptionPositionChange(null, captionMarginVRef.current)}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontFamily: 'monospace', fontSize: '12px', minWidth: '32px' }}>{captionMarginV}px</span>
+                  </div>
+                  <button
+                    className={captionEditorOpen ? 'btn btn-info' : 'btn btn-secondary'}
+                    onClick={() => setCaptionEditorOpen(!captionEditorOpen)}
+                    style={{ fontSize: '13px', padding: '6px 12px', width: '100%' }}
+                  >
+                    {captionEditorOpen ? 'Close Editor' : 'Edit Caption Grouping'}
+                  </button>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{phrases.length} phrases</span>
+                </>
+              )}
+            </div>
+
           </>
-        )}
+        )
+        if (sidebarContainerRef?.current) {
+          return ReactDOM.createPortal(panelsContent, sidebarContainerRef.current)
+        }
+        return (
+          <>
+            {panelsContent}
+          </>
+        )
+      })()}
 
-        <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
-
-        <button
-          className={captionEditorOpen ? 'btn btn-info' : 'btn btn-secondary'}
-          onClick={() => setCaptionEditorOpen(!captionEditorOpen)}
-          style={{ fontSize: '13px', padding: '4px 12px' }}
-        >
-          {captionEditorOpen ? 'Close Editor' : 'Edit Caption Grouping'}
-        </button>
-        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-          {phrases.length} phrases
-        </span>
-      </div>
-
-      {/* Caption grouping editor */}
-      {captionEditorOpen && (
-        <CaptionGroupEditor
-          projectId={projectId}
-          voiceover={voiceover}
-          audioRef={audioRef}
-          pxPerSecond={pxPerSecond}
-          onBoundariesChanged={loadPhrases}
-        />
-      )}
+      {/* Caption grouping editor — popup modal */}
+      {captionEditorOpen && (() => {
+        const tryClose = () => {
+          const hasUnsaved = captionEditorRef.current?.hasUnsavedChanges?.()
+          if (hasUnsaved && !window.confirm('You have unsaved changes. Do you want to leave?')) return
+          setCaptionEditorOpen(false)
+        }
+        return ReactDOM.createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 10000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(0,0,0,0.6)',
+              padding: '24px',
+              boxSizing: 'border-box',
+            }}
+            onClick={(e) => e.target === e.currentTarget && tryClose()}
+          >
+            <div
+              style={{
+                width: '90vw',
+                maxWidth: '1400px',
+                height: '85vh',
+                maxHeight: '900px',
+                background: 'var(--bg-surface)',
+                borderRadius: '12px',
+                border: '1px solid var(--border)',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{
+                flex: '0 0 auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 20px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--bg-surface-alt)',
+              }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Caption Grouping Editor
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={tryClose}
+                  style={{ padding: '8px 16px', fontSize: '14px' }}
+                >
+                  Close
+                </button>
+              </div>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px' }}>
+                <CaptionGroupEditor
+                  ref={captionEditorRef}
+                  projectId={projectId}
+                  voiceover={voiceover}
+                  audioRef={audioRef}
+                  pxPerSecond={pxPerSecond}
+                  onBoundariesChanged={loadPhrases}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      })()}
 
       {/* Render button */}
       {!hideRenderButton && (

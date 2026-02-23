@@ -1,22 +1,27 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import axios from 'axios'
 
 const API_BASE = '/api'
 const WORD_ROW_HEIGHT = 52
 const GROUP_LABEL_HEIGHT = 28
 
-function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: externalZoom, onBoundariesChanged }) {
+const CaptionGroupEditor = forwardRef(function CaptionGroupEditor(
+  { projectId, voiceover, audioRef, pxPerSecond: externalZoom, onBoundariesChanged },
+  ref
+) {
   const [words, setWords] = useState([])
   const [boundaries, setBoundaries] = useState([])
   const [loading, setLoading] = useState(true)
   const [autoGrouping, setAutoGrouping] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
   const [dragging, setDragging] = useState(null)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const scrollRef = useRef(null)
   const trackRef = useRef(null)
   const localAudioRef = useRef(null)
+  const lastSavedBoundariesRef = useRef(null)
 
   const pxPerSecond = externalZoom || 120
   const audio = audioRef?.current || localAudioRef.current
@@ -29,13 +34,17 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
 
   const loadWords = async () => {
     setLoading(true)
+    setSaveSuccess(false)
     try {
       const resp = await axios.get(`${API_BASE}/projects/${projectId}/voiceover/words`)
+      const loadedBoundaries = resp.data.boundaries || []
       setWords(resp.data.words || [])
-      setBoundaries(resp.data.boundaries || [])
+      setBoundaries(loadedBoundaries)
+      lastSavedBoundariesRef.current = loadedBoundaries
     } catch {
       setWords([])
       setBoundaries([])
+      lastSavedBoundariesRef.current = []
     } finally {
       setLoading(false)
     }
@@ -46,7 +55,6 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
     try {
       const resp = await axios.post(`${API_BASE}/projects/${projectId}/voiceover/auto-group-captions`)
       setBoundaries(resp.data.boundaries || [])
-      if (onBoundariesChanged) onBoundariesChanged()
     } catch (error) {
       console.error('Auto-group error:', error)
       alert('Error auto-grouping captions')
@@ -55,13 +63,17 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
     }
   }
 
-  const saveBoundaries = async (newBoundaries) => {
+  const saveBoundaries = async (boundariesToSave) => {
     setSaving(true)
+    setSaveSuccess(false)
     try {
       await axios.put(`${API_BASE}/projects/${projectId}/voiceover/caption-boundaries`, {
-        boundaries: newBoundaries,
+        boundaries: boundariesToSave,
       })
+      lastSavedBoundariesRef.current = boundariesToSave
       if (onBoundariesChanged) onBoundariesChanged()
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 2000)
     } catch (error) {
       console.error('Save boundaries error:', error)
     } finally {
@@ -69,13 +81,24 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
     }
   }
 
-  const handleResetDefault = async () => {
+  const handleSave = () => saveBoundaries(boundaries)
+
+  const hasUnsavedChanges =
+    lastSavedBoundariesRef.current === null
+      ? boundaries.length > 0
+      : JSON.stringify([...boundaries].sort((a, b) => a - b)) !==
+        JSON.stringify([...lastSavedBoundariesRef.current].sort((a, b) => a - b))
+
+  useImperativeHandle(ref, () => ({
+    hasUnsavedChanges: () => hasUnsavedChanges,
+  }), [hasUnsavedChanges])
+
+  const handleResetDefault = () => {
     const defaultBoundaries = []
     for (let i = 5; i < words.length; i += 5) {
       defaultBoundaries.push(i)
     }
     setBoundaries(defaultBoundaries)
-    await saveBoundaries(defaultBoundaries)
   }
 
   // Build groups from words + boundaries
@@ -172,11 +195,8 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
   }, [dragging, words])
 
   const handleMouseUp = useCallback(() => {
-    if (dragging) {
-      setDragging(null)
-      saveBoundaries(boundaries)
-    }
-  }, [dragging, boundaries])
+    if (dragging) setDragging(null)
+  }, [dragging])
 
   useEffect(() => {
     if (dragging) {
@@ -210,7 +230,6 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
     if (bestWordIdx !== null && !boundaries.includes(bestWordIdx)) {
       const newBoundaries = [...boundaries, bestWordIdx].sort((a, b) => a - b)
       setBoundaries(newBoundaries)
-      saveBoundaries(newBoundaries)
     }
   }
 
@@ -220,7 +239,6 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
     e.stopPropagation()
     const newBoundaries = boundaries.filter((_, i) => i !== boundaryIdx)
     setBoundaries(newBoundaries)
-    saveBoundaries(newBoundaries)
   }
 
   const formatTime = (seconds) => {
@@ -276,10 +294,17 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
         <button
           className="btn btn-secondary"
           onClick={handleResetDefault}
-          disabled={saving}
           style={{ fontSize: '13px', padding: '5px 14px' }}
         >
           Reset Default
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={handleSave}
+          disabled={saving || !hasUnsavedChanges}
+          style={{ fontSize: '13px', padding: '5px 14px', minWidth: '80px' }}
+        >
+          {saving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save'}
         </button>
         <button
           className="btn btn-secondary"
@@ -457,11 +482,8 @@ function CaptionGroupEditor({ projectId, voiceover, audioRef, pxPerSecond: exter
         </div>
       </div>
 
-      {saving && (
-        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>Saving...</span>
-      )}
     </div>
   )
-}
+})
 
 export default CaptionGroupEditor

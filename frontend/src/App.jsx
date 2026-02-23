@@ -25,8 +25,8 @@ const WORKFLOW_STEPS = [
   { key: 'script', label: 'Script', icon: '📝' },
   { key: 'scenes', label: 'Scenes', icon: '🎬' },
   { key: 'images', label: 'Images', icon: '🖼️' },
-  { key: 'voiceover', label: 'Voiceover', icon: '🔊' },
-  { key: 'video', label: 'Video', icon: '🎥' },
+  { key: 'voiceover', label: 'Video editor', icon: '✂️' },
+  { key: 'video', label: 'Complete video', icon: '🎥' },
 ]
 
 function WorkflowBar() {
