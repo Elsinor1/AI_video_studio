@@ -10,6 +10,37 @@ import requests
 from dotenv import load_dotenv
 load_dotenv()
 
+# Script generation/iteration: supported models (id is API model id)
+SCRIPT_AI_MODELS = [
+    # Latest GPT (frontier)
+    {"id": "gpt-5.2", "label": "GPT-5.2"},
+    {"id": "gpt-5.2-pro", "label": "GPT-5.2 Pro"},
+    {"id": "gpt-5.1", "label": "GPT-5.1"},
+    {"id": "gpt-5", "label": "GPT-5"},
+    {"id": "gpt-5-mini", "label": "GPT-5 mini"},
+    {"id": "gpt-5-nano", "label": "GPT-5 nano"},
+    # GPT-4.x
+    {"id": "gpt-4.1", "label": "GPT-4.1"},
+    {"id": "gpt-4.1-mini", "label": "GPT-4.1 mini"},
+    {"id": "gpt-4.1-nano", "label": "GPT-4.1 nano"},
+    {"id": "gpt-4o", "label": "GPT-4o"},
+    {"id": "gpt-4o-mini", "label": "GPT-4o mini"},
+    {"id": "gpt-4-turbo", "label": "GPT-4 Turbo"},
+    {"id": "gpt-4", "label": "GPT-4"},
+    # Claude
+    {"id": "claude-opus-4-6", "label": "Claude 4.6 Opus"},
+]
+
+def _is_claude_model(model_id: str) -> bool:
+    return (model_id or "").startswith("claude-")
+
+def get_anthropic_client():
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable not set (required for Claude models)")
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key)
+
 # Initialize OpenAI client lazily
 def get_openai_client():
     api_key = os.getenv("OPENAI_API_KEY")
@@ -35,11 +66,17 @@ def get_openai_client():
     return client
 
 
-def generate_script(title: str, description: str, script_prompt_instructions: str) -> str:
+def generate_script(
+    title: str,
+    description: str,
+    script_prompt_instructions: str,
+    model: Optional[str] = "gpt-4",
+) -> str:
     """
     Generate a full script from project title, short description, and script prompt instructions.
-    Returns the generated script text.
+    Returns the generated script text. model: e.g. gpt-4, gpt-4o, claude-opus-4-6.
     """
+    model_id = (model or "gpt-4").strip()
     prompt = f"""You are a professional scriptwriter. Generate a complete video script based on the following.
 
 Project title: {title or 'Untitled'}
@@ -53,12 +90,19 @@ Style and instructions for the script (tone, structure, format):
 Write a full script that is ready for video production. Use clear scene descriptions and dialogue where appropriate. Output only the script text, no meta-commentary."""
 
     try:
+        if _is_claude_model(model_id):
+            client = get_anthropic_client()
+            response = client.messages.create(
+                model=model_id,
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text if response.content else ""
+            return text.strip()
         client = get_openai_client()
         response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
+            model=model_id,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
         )
         return (response.choices[0].message.content or "").strip()
@@ -78,16 +122,19 @@ def revise_script_with_feedback(
     current_script: str,
     previous_feedback_list: List[str],
     new_feedback: str,
+    model: Optional[str] = "gpt-4",
 ) -> str:
     """
     Revise the script based on new feedback and optional previous feedback (sliding window).
     Only feedback text is sent as context, not full script history, to keep tokens bounded.
     """
+    model_id = (model or "gpt-4").strip()
     previous_block = ""
     if previous_feedback_list:
         previous_block = "Previous feedback (for context):\n" + "\n".join(
             f"- {fb}" for fb in previous_feedback_list
         ) + "\n\n"
+    system_content = "You are a script editor. Revise the script based on the user's feedback. Return only the complete revised script text, nothing else."
     user_content = f"""Current script:
 
 {current_script}
@@ -99,14 +146,21 @@ New feedback to apply: {new_feedback}
 Revise the script according to the new feedback. Output only the full revised script, no commentary or explanation."""
 
     try:
+        if _is_claude_model(model_id):
+            client = get_anthropic_client()
+            response = client.messages.create(
+                model=model_id,
+                max_tokens=8192,
+                system=system_content,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            text = response.content[0].text if response.content else ""
+            return text.strip()
         client = get_openai_client()
         response = client.chat.completions.create(
-            model="gpt-4",
+            model=model_id,
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a script editor. Revise the script based on the user's feedback. Return only the complete revised script text, nothing else.",
-                },
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
             ],
             temperature=0.5,
@@ -629,10 +683,21 @@ def generate_image_with_stable_diffusion(
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "G17SuINrv2H9FC6nvetn")
 
 
-def generate_full_script_speech(full_text: str, output_audio_path: str) -> dict:
+def generate_full_script_speech(
+    full_text: str,
+    output_audio_path: str,
+    elevenlabs_voice_id: Optional[str] = None,
+    model_id: str = "eleven_multilingual_v2",
+    stability: float = 0.5,
+    similarity_boost: float = 0.75,
+    style: float = 0.0,
+    speed: float = 1.0,
+    use_speaker_boost: bool = True,
+    language_code: Optional[str] = None,
+) -> dict:
     """
     Call ElevenLabs TTS with-timestamps for the full script text.
-    Saves audio to output_audio_path and returns the alignment dict.
+    Accepts all ElevenLabs voice_settings. Saves audio and returns alignment dict.
     """
     import base64
 
@@ -640,18 +705,29 @@ def generate_full_script_speech(full_text: str, output_audio_path: str) -> dict:
     if not api_key:
         raise ValueError("ELEVENLABS_API_KEY environment variable not set")
 
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/with-timestamps"
+    voice_id = elevenlabs_voice_id or ELEVENLABS_VOICE_ID
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
     headers = {
         "xi-api-key": api_key,
         "Content-Type": "application/json",
     }
     payload = {
         "text": full_text,
-        "model_id": "eleven_multilingual_v2",
+        "model_id": model_id,
         "output_format": "mp3_44100_128",
+        "voice_settings": {
+            "stability": stability,
+            "similarity_boost": similarity_boost,
+            "style": style,
+            "speed": speed,
+            "use_speaker_boost": use_speaker_boost,
+        },
     }
+    if language_code:
+        payload["language_code"] = language_code
 
-    print(f"[TTS] Calling ElevenLabs with-timestamps, text length={len(full_text)}")
+    print(f"[TTS] Calling ElevenLabs with-timestamps, voice={voice_id}, model={model_id}, "
+          f"speed={speed}, stability={stability}, text length={len(full_text)}")
     resp = requests.post(url, json=payload, headers=headers, timeout=300)
     if resp.status_code != 200:
         raise ValueError(f"ElevenLabs API error {resp.status_code}: {resp.text[:500]}")
@@ -801,16 +877,28 @@ def _format_ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
-def generate_captions_ass(alignment: dict, caption_style: str, output_ass_path: str) -> str:
+def generate_captions_ass(
+    alignment: dict,
+    caption_style: str,
+    output_ass_path: str,
+    caption_alignment: int = 2,
+    caption_margin_v: int = 60,
+) -> str:
     """
     Generate ASS subtitle file from alignment data.
     caption_style: "word_highlight" or "subtitle_chunks"
+    caption_alignment: ASS alignment 1-9 (1=bottom-left .. 9=top-right; 2=bottom center)
+    caption_margin_v: vertical margin in pixels from edge
     """
     words = _group_chars_into_words(alignment)
     if not words:
         raise ValueError("No words found in alignment data")
 
-    header = """[Script Info]
+    align = max(1, min(9, caption_alignment))
+    margin_v = max(0, caption_margin_v)
+    margin_l = margin_r = 40
+
+    header = f"""[Script Info]
 Title: AI Video Studio Captions
 ScriptType: v4.00+
 WrapStyle: 0
@@ -821,9 +909,9 @@ PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
-Style: Highlight,Arial,72,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
-Style: Dim,Arial,72,&H60FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,60,1
+Style: Default,Arial,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,{align},{margin_l},{margin_r},{margin_v},1
+Style: Highlight,Arial,72,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,{align},{margin_l},{margin_r},{margin_v},1
+Style: Dim,Arial,72,&H60FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,{align},{margin_l},{margin_r},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -878,6 +966,52 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # Video creation with transitions and audio
 # ---------------------------------------------------------------------------
 
+def _build_segment_vf(entry: dict, duration_sec: float) -> str:
+    """
+    Build the -vf filter chain for one image segment (static or zoompan + optional effects).
+    entry may contain image_animation and image_effect (None or string).
+    """
+    anim = (entry.get("image_animation") or "").strip() or None
+    effect = (entry.get("image_effect") or "").strip() or None
+    n_frames = max(1, int(round(30 * duration_sec)))
+    out_w, out_h = 1920, 1080
+
+    if not anim or anim == "none":
+        base = f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black"
+    else:
+        # Scale image 2x so zoompan has room; then zoompan to output size
+        in_w, in_h = 3840, 2160
+        scale_pad = f"scale={in_w}:{in_h}:force_original_aspect_ratio=decrease,pad={in_w}:{in_h}:(ow-iw)/2:(oh-ih)/2:black"
+        if anim == "zoom_in":
+            zp = f"zoompan=z='1+0.5*on/{n_frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={n_frames}:s={out_w}x{out_h}:fps=30"
+        elif anim == "zoom_out":
+            zp = f"zoompan=z='1.5-0.5*on/{n_frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={n_frames}:s={out_w}x{out_h}:fps=30"
+        elif anim == "pan_left":
+            zp = f"zoompan=z=1.15:x='iw/4+on*(iw/2/{n_frames})':y='ih/2-(ih/1.15/2)':d={n_frames}:s={out_w}x{out_h}:fps=30"
+        elif anim == "pan_right":
+            zp = f"zoompan=z=1.15:x='iw*3/4-on*(iw/2/{n_frames})':y='ih/2-(ih/1.15/2)':d={n_frames}:s={out_w}x{out_h}:fps=30"
+        elif anim == "ken_burns_in":
+            zp = f"zoompan=z='1+0.4*on/{n_frames}':x='on*(iw/4/{n_frames})':y='on*(ih/4/{n_frames})':d={n_frames}:s={out_w}x{out_h}:fps=30"
+        elif anim == "ken_burns_out":
+            zp = f"zoompan=z='1.4-0.4*on/{n_frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={n_frames}:s={out_w}x{out_h}:fps=30"
+        else:
+            base = f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black"
+            scale_pad = None
+            zp = None
+        if scale_pad and zp:
+            base = f"{scale_pad},{zp}"
+        else:
+            base = f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black"
+
+    parts = []
+    if effect == "fade_in":
+        parts.append("fade=in:0:30")
+    parts.append(base)
+    if effect == "vignette":
+        parts.append("vignette=angle=PI/4")
+    return ",".join(parts)
+
+
 def create_video_with_transitions(
     scene_entries: List[dict],
     audio_path: str,
@@ -903,20 +1037,21 @@ def create_video_with_transitions(
             segment_paths.append(seg_path)
             img_abs = os.path.abspath(entry["image_path"])
             dur = entry["duration"]
+            vf_string = _build_segment_vf(entry, dur)
 
             cmd = [
                 "ffmpeg", "-y",
                 "-loop", "1",
                 "-t", str(dur),
                 "-i", img_abs,
-                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black",
+                "-vf", vf_string,
                 "-c:v", "libx264",
                 "-tune", "stillimage",
                 "-pix_fmt", "yuv420p",
                 "-r", "30",
                 seg_path,
             ]
-            print(f"[VIDEO] Creating segment {i}: {dur:.2f}s from {os.path.basename(img_abs)}")
+            print(f"[VIDEO] Creating segment {i}: {dur:.2f}s from {os.path.basename(img_abs)} (animation={entry.get('image_animation')}, effect={entry.get('image_effect')})")
             subprocess.run(cmd, check=True, capture_output=True)
 
         has_transitions = any(

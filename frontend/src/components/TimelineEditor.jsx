@@ -16,14 +16,18 @@ function TimelineEditor({
   scenes,
   onRenderVideo,
   onTimingsChanged,
+  hideRenderButton,
 }) {
   const [timings, setTimings] = useState([])
   const [phrases, setPhrases] = useState([])
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [selectedDivider, setSelectedDivider] = useState(null)
+  const [selectedSceneIndex, setSelectedSceneIndex] = useState(null)
   const [captionsEnabled, setCaptionsEnabled] = useState(voiceover?.captions_enabled || false)
   const [captionStyle, setCaptionStyle] = useState(voiceover?.caption_style || 'word_highlight')
+  const [captionAlignment, setCaptionAlignment] = useState(voiceover?.caption_alignment ?? 2)
+  const [captionMarginV, setCaptionMarginV] = useState(voiceover?.caption_margin_v ?? 60)
   const [savingCaptions, setSavingCaptions] = useState(false)
   const [dragging, setDragging] = useState(null)
   const [pxPerSecond, setPxPerSecond] = useState(PX_PER_SECOND_DEFAULT)
@@ -33,6 +37,8 @@ function TimelineEditor({
   const audioRef = useRef(null)
   const scrollRef = useRef(null)
   const trackRef = useRef(null)
+  const captionMarginVRef = useRef(captionMarginV)
+  captionMarginVRef.current = captionMarginV
 
   useEffect(() => {
     if (voiceover?.scene_timings) {
@@ -50,6 +56,8 @@ function TimelineEditor({
   useEffect(() => {
     setCaptionsEnabled(voiceover?.captions_enabled || false)
     setCaptionStyle(voiceover?.caption_style || 'word_highlight')
+    setCaptionAlignment(voiceover?.caption_alignment ?? 2)
+    setCaptionMarginV(voiceover?.caption_margin_v ?? 60)
   }, [voiceover])
 
   const loadPhrases = useCallback(() => {
@@ -155,6 +163,7 @@ function TimelineEditor({
     e.preventDefault()
     setDragging({ index })
     setSelectedDivider(index)
+    setSelectedSceneIndex(null)
   }
 
   const handleMouseMove = useCallback((e) => {
@@ -230,13 +239,38 @@ function TimelineEditor({
     saveTimings()
   }
 
-  const handleCaptionsToggle = async (enabled) => {
-    setCaptionsEnabled(enabled)
+  const handleSceneBlockClick = (e, index) => {
+    e.stopPropagation()
+    setSelectedSceneIndex(index)
+    setSelectedDivider(null)
+  }
+
+  const handleAnimationChange = (index, value) => {
+    setTimings(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], image_animation: value || null }
+      return updated
+    })
+    setTimeout(() => saveTimings(), 0)
+  }
+
+  const handleEffectChange = (index, value) => {
+    setTimings(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], image_effect: value || null }
+      return updated
+    })
+    setTimeout(() => saveTimings(), 0)
+  }
+
+  const saveCaptionSettings = async (overrides = {}) => {
     setSavingCaptions(true)
     try {
       await axios.put(`${API_BASE}/projects/${projectId}/voiceover/caption-settings`, {
-        captions_enabled: enabled,
-        caption_style: captionStyle,
+        captions_enabled: overrides.captions_enabled ?? captionsEnabled,
+        caption_style: overrides.caption_style ?? captionStyle,
+        caption_alignment: overrides.caption_alignment ?? captionAlignment,
+        caption_margin_v: overrides.caption_margin_v ?? captionMarginV,
       })
     } catch (error) {
       console.error('Error saving caption settings:', error)
@@ -245,19 +279,23 @@ function TimelineEditor({
     }
   }
 
+  const handleCaptionsToggle = async (enabled) => {
+    setCaptionsEnabled(enabled)
+    await saveCaptionSettings({ captions_enabled: enabled })
+  }
+
   const handleCaptionStyleChange = async (style) => {
     setCaptionStyle(style)
-    setSavingCaptions(true)
-    try {
-      await axios.put(`${API_BASE}/projects/${projectId}/voiceover/caption-settings`, {
-        captions_enabled: captionsEnabled,
-        caption_style: style,
-      })
-    } catch (error) {
-      console.error('Error saving caption settings:', error)
-    } finally {
-      setSavingCaptions(false)
-    }
+    await saveCaptionSettings({ caption_style: style })
+  }
+
+  const handleCaptionPositionChange = async (alignment, marginV) => {
+    if (alignment != null) setCaptionAlignment(alignment)
+    if (marginV != null) setCaptionMarginV(marginV)
+    await saveCaptionSettings({
+      ...(alignment != null && { caption_alignment: alignment }),
+      ...(marginV != null && { caption_margin_v: marginV }),
+    })
   }
 
   const formatTime = (seconds) => {
@@ -410,13 +448,22 @@ function TimelineEditor({
                 const isActive = currentTime >= t.start_time && currentTime < t.end_time
                 const imgUrl = getSceneImageUrl(t.scene_id)
 
+                const hasAnimation = t.image_animation && t.image_animation !== 'none'
+                const hasEffect = t.image_effect && t.image_effect !== 'none'
+                const isSelected = selectedSceneIndex === i
+
                 return (
                   <div
                     key={t.scene_id}
+                    onClick={(e) => handleSceneBlockClick(e, i)}
                     style={{
                       position: 'absolute', left: `${left}px`, width: `${width}px`,
                       top: 0, bottom: 0, overflow: 'hidden',
                       borderRight: i < timings.length - 1 ? '1px solid rgba(0,0,0,0.15)' : undefined,
+                      cursor: 'pointer',
+                      outline: isSelected ? '2px solid var(--primary)' : 'none',
+                      outlineOffset: '-2px',
+                      zIndex: isSelected ? 5 : 1,
                     }}
                   >
                     {imgUrl ? (
@@ -464,6 +511,14 @@ function TimelineEditor({
                         fontSize: '11px', color: 'rgba(255,255,255,0.7)',
                         textShadow: '0 1px 2px rgba(0,0,0,0.8)',
                       }}>{(t.end_time - t.start_time).toFixed(1)}s</span>
+                      {(hasAnimation || hasEffect) && (
+                        <span style={{
+                          fontSize: '9px', color: 'rgba(255,255,255,0.9)',
+                          marginTop: '2px', textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                        }}>
+                          {[hasAnimation && 'Motion', hasEffect && 'FX'].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )
@@ -528,7 +583,7 @@ function TimelineEditor({
                 <div
                   key={`div-${i}`}
                   onMouseDown={(e) => handleDividerMouseDown(e, i)}
-                  onClick={(e) => { e.stopPropagation(); setSelectedDivider(i) }}
+                  onClick={(e) => { e.stopPropagation(); setSelectedDivider(i); setSelectedSceneIndex(null) }}
                   style={{
                     position: 'absolute', left: `${x - 7}px`,
                     top: 0, bottom: 0, width: '14px',
@@ -568,6 +623,58 @@ function TimelineEditor({
           </div>
         </div>
       </div>
+
+      {/* Scene animation / effect panel */}
+      {selectedSceneIndex !== null && selectedSceneIndex < timings.length && (
+        <div style={{
+          padding: '10px 16px', background: 'var(--bg-surface-alt)',
+          borderRadius: '8px', border: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
+          marginBottom: '10px',
+        }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            Scene {selectedSceneIndex + 1}
+          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Animation:</span>
+            <select
+              value={timings[selectedSceneIndex]?.image_animation || 'none'}
+              onChange={(e) => handleAnimationChange(selectedSceneIndex, e.target.value === 'none' ? null : e.target.value)}
+              style={{
+                padding: '4px 8px', borderRadius: '4px',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                fontSize: '13px',
+              }}
+            >
+              <option value="none">None</option>
+              <option value="zoom_in">Slow zoom in</option>
+              <option value="zoom_out">Slow zoom out</option>
+              <option value="pan_left">Pan left</option>
+              <option value="pan_right">Pan right</option>
+              <option value="ken_burns_in">Ken Burns in</option>
+              <option value="ken_burns_out">Ken Burns out</option>
+            </select>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Effect:</span>
+            <select
+              value={timings[selectedSceneIndex]?.image_effect || 'none'}
+              onChange={(e) => handleEffectChange(selectedSceneIndex, e.target.value === 'none' ? null : e.target.value)}
+              style={{
+                padding: '4px 8px', borderRadius: '4px',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                fontSize: '13px',
+              }}
+            >
+              <option value="none">None</option>
+              <option value="fade_in">Fade in</option>
+              <option value="vignette">Vignette</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       {/* Transition panel */}
       {selectedDivider !== null && selectedDivider < timings.length - 1 && (
@@ -652,6 +759,42 @@ function TimelineEditor({
                 ? 'Each word highlights as it is spoken (karaoke style)'
                 : 'Standard subtitles, ~6 words at a time'}
             </span>
+            <select
+              value={captionAlignment}
+              onChange={(e) => handleCaptionPositionChange(Number(e.target.value), null)}
+              disabled={savingCaptions}
+              style={{
+                padding: '4px 8px', borderRadius: '4px',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-surface)', color: 'var(--text-primary)',
+                fontSize: '13px',
+              }}
+              title="Caption position on screen"
+            >
+              <option value={1}>Bottom left</option>
+              <option value={2}>Bottom center</option>
+              <option value={3}>Bottom right</option>
+              <option value={4}>Middle left</option>
+              <option value={5}>Middle center</option>
+              <option value={6}>Middle right</option>
+              <option value={7}>Top left</option>
+              <option value={8}>Top center</option>
+              <option value={9}>Top right</option>
+            </select>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ whiteSpace: 'nowrap' }}>Distance from edge:</label>
+              <input
+                type="range"
+                min={20}
+                max={120}
+                value={captionMarginV}
+                onChange={(e) => setCaptionMarginV(Number(e.target.value))}
+                onMouseUp={() => handleCaptionPositionChange(null, captionMarginVRef.current)}
+                onTouchEnd={() => handleCaptionPositionChange(null, captionMarginVRef.current)}
+                style={{ width: '80px' }}
+              />
+              <span style={{ fontFamily: 'monospace', minWidth: '28px' }}>{captionMarginV}px</span>
+            </span>
           </>
         )}
 
@@ -681,15 +824,17 @@ function TimelineEditor({
       )}
 
       {/* Render button */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-        <button
-          className="btn btn-primary"
-          onClick={() => onRenderVideo && onRenderVideo(voiceover.id)}
-          style={{ padding: '10px 28px', fontSize: '15px', fontWeight: 600 }}
-        >
-          Render Video
-        </button>
-      </div>
+      {!hideRenderButton && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => onRenderVideo && onRenderVideo(voiceover.id)}
+            style={{ padding: '10px 28px', fontSize: '15px', fontWeight: 600 }}
+          >
+            Render Video
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -8,6 +8,8 @@ import SceneEditor from './components/SceneEditor'
 import SceneDetail from './components/SceneDetail'
 import ImageGallery from './components/ImageGallery'
 import VideoViewer from './components/VideoViewer'
+import VoiceoverEditor from './components/VoiceoverEditor'
+import VoicesList from './components/VoicesList'
 import VisualStylesList from './components/VisualStylesList'
 import SceneStylesList from './components/SceneStylesList'
 import ScriptPromptsList from './components/ScriptPromptsList'
@@ -23,6 +25,7 @@ const WORKFLOW_STEPS = [
   { key: 'script', label: 'Script', icon: '📝' },
   { key: 'scenes', label: 'Scenes', icon: '🎬' },
   { key: 'images', label: 'Images', icon: '🖼️' },
+  { key: 'voiceover', label: 'Voiceover', icon: '🔊' },
   { key: 'video', label: 'Video', icon: '🎥' },
 ]
 
@@ -39,6 +42,7 @@ function WorkflowBar() {
   let activeStep = 'projects'
   if (projectId) {
     if (path.includes('/video')) activeStep = 'video'
+    else if (path.includes('/voiceover')) activeStep = 'voiceover'
     else if (path.includes('/images')) activeStep = 'images'
     else if (path.includes('/scenes')) activeStep = 'scenes'
     else activeStep = 'script'
@@ -56,6 +60,7 @@ function WorkflowBar() {
       case 'script': navigate(`/projects/${projectId}`); break
       case 'scenes': navigate(`/projects/${projectId}/scenes`); break
       case 'images': navigate(`/projects/${projectId}/images`); break
+      case 'voiceover': navigate(`/projects/${projectId}/voiceover`); break
       case 'video': navigate(`/projects/${projectId}/video`); break
     }
   }
@@ -92,6 +97,8 @@ function WorkflowBar() {
 function App() {
   const location = useLocation()
   const isSceneDetailPage = /\/projects\/\d+\/scenes\/\d+$/.test(location.pathname)
+  const isScriptEditorPage = /^\/projects\/new$/.test(location.pathname) || /^\/projects\/\d+$/.test(location.pathname)
+  const isFullHeightPage = isSceneDetailPage || isScriptEditorPage
   const [projects, setProjects] = useState([])
   const [theme, setTheme] = useState(() => {
     try {
@@ -124,24 +131,26 @@ function App() {
   }
 
   return (
-    <div style={isSceneDetailPage ? { height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}}>
+    <div style={isFullHeightPage ? { height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' } : {}}>
       <NavigationBar theme={theme} onToggleTheme={toggleTheme} />
-      <div className="container" style={isSceneDetailPage ? { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}>
+      <div className="container" style={isFullHeightPage ? { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}>
         <WorkflowBar />
 
-        <div style={isSceneDetailPage ? { flex: 1, overflow: 'hidden', minHeight: 0 } : {}}>
+        <div style={isFullHeightPage ? { flex: 1, overflow: 'hidden', minHeight: 0 } : {}}>
         <Routes>
         <Route path="/" element={<ProjectListPage projects={projects} onProjectsChange={loadProjects} />} />
         <Route path="/projects/new" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
         <Route path="/projects/:id/scenes/:sceneId" element={<SceneDetailPage />} />
         <Route path="/projects/:id/scenes" element={<SceneEditorPage />} />
         <Route path="/projects/:id/images" element={<ImageGalleryPage />} />
+        <Route path="/projects/:id/voiceover" element={<VoiceoverPage />} />
         <Route path="/projects/:id/video" element={<VideoViewerPage />} />
         <Route path="/projects/:id" element={<ProjectEditorPage onProjectsChange={loadProjects} />} />
         <Route path="/styles" element={<VisualStylesList />} />
         <Route path="/scene-styles" element={<SceneStylesList />} />
         <Route path="/script-prompts" element={<ScriptPromptsList />} />
         <Route path="/image-references" element={<ImageReferencesList />} />
+        <Route path="/voices" element={<VoicesList />} />
         </Routes>
         </div>
       </div>
@@ -294,6 +303,19 @@ function ImageGalleryPage() {
     <ImageGallery
       scriptId={parseInt(id)}
       onBack={() => navigate(`/projects/${id}/scenes`)}
+      onNext={() => navigate(`/projects/${id}/voiceover`)}
+    />
+  )
+}
+
+function VoiceoverPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+
+  return (
+    <VoiceoverEditor
+      scriptId={parseInt(id)}
+      onBack={() => navigate(`/projects/${id}/images`)}
       onNext={() => navigate(`/projects/${id}/video`)}
     />
   )
@@ -306,7 +328,7 @@ function VideoViewerPage() {
   return (
     <VideoViewer
       scriptId={parseInt(id)}
-      onBack={() => navigate(`/projects/${id}/images`)}
+      onBack={() => navigate(`/projects/${id}/voiceover`)}
     />
   )
 }

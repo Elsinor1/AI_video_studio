@@ -162,21 +162,43 @@ class Video(Base):
     voiceover = relationship("Voiceover", back_populates="videos")
 
 
+class Voice(Base):
+    __tablename__ = "voices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    elevenlabs_voice_id = Column(String, nullable=False)
+    model_id = Column(String, default="eleven_multilingual_v2")
+    stability = Column(Float, default=0.5)
+    similarity_boost = Column(Float, default=0.75)
+    style = Column(Float, default=0.0)
+    speed = Column(Float, default=1.0)
+    use_speaker_boost = Column(Boolean, default=True)
+    language_code = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class Voiceover(Base):
     __tablename__ = "voiceovers"
     
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    voice_id = Column(Integer, ForeignKey("voices.id"), nullable=True)
+    tts_settings = Column(Text, nullable=True)  # JSON snapshot of ElevenLabs params used
     audio_file_path = Column(String, nullable=True)
     alignment_data = Column(Text, nullable=True)
     scene_timings = Column(Text, nullable=True)
     total_duration = Column(Float, nullable=True)
     captions_enabled = Column(Boolean, default=False)
     caption_style = Column(String, default="word_highlight")
+    caption_alignment = Column(Integer, default=2)  # ASS alignment 1-9 (2=bottom center)
+    caption_margin_v = Column(Integer, default=60)   # vertical margin in pixels
     caption_groups = Column(Text, nullable=True)
     status = Column(String, default=Status.PENDING.value)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     project = relationship("Project", back_populates="voiceovers")
+    voice = relationship("Voice")
     videos = relationship("Video", back_populates="voiceover")
 

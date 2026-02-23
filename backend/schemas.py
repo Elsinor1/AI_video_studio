@@ -36,6 +36,7 @@ class ScriptGenerationRequest(BaseModel):
     title: Optional[str] = None
     description: str  # Short description of what the script should be about
     script_prompt_id: int  # ID of the script prompt to use for style/instructions
+    model: Optional[str] = "gpt-4"  # e.g. gpt-4, gpt-4o, claude-opus-4-6
 
 
 class ScriptGenerationResponse(BaseModel):
@@ -44,6 +45,7 @@ class ScriptGenerationResponse(BaseModel):
 
 class ScriptIterateRequest(BaseModel):
     feedback: str
+    model: Optional[str] = "gpt-4"  # e.g. gpt-4, gpt-4o, claude-opus-4-6
 
 
 class ScriptIterateResponse(BaseModel):
@@ -293,6 +295,45 @@ class Video(VideoBase):
         from_attributes = True
 
 
+# Voice schemas (predefined ElevenLabs voices)
+
+class VoiceBase(BaseModel):
+    name: str
+    elevenlabs_voice_id: str
+    model_id: str = "eleven_multilingual_v2"
+    stability: float = 0.5
+    similarity_boost: float = 0.75
+    style: float = 0.0
+    speed: float = 1.0
+    use_speaker_boost: bool = True
+    language_code: Optional[str] = None
+
+
+class VoiceCreate(VoiceBase):
+    pass
+
+
+class VoiceUpdate(BaseModel):
+    name: Optional[str] = None
+    elevenlabs_voice_id: Optional[str] = None
+    model_id: Optional[str] = None
+    stability: Optional[float] = None
+    similarity_boost: Optional[float] = None
+    style: Optional[float] = None
+    speed: Optional[float] = None
+    use_speaker_boost: Optional[bool] = None
+    language_code: Optional[str] = None
+
+
+class Voice(VoiceBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # Voiceover schemas
 
 class SceneTimingEntry(BaseModel):
@@ -301,20 +342,38 @@ class SceneTimingEntry(BaseModel):
     end_time: float
     transition_type: str = "cut"
     transition_duration: float = 0.0
+    image_animation: Optional[str] = None
+    image_effect: Optional[str] = None
 
 
 class VoiceoverBase(BaseModel):
     pass
 
 
+class GenerateVoiceoverRequest(BaseModel):
+    voice_id: Optional[int] = None
+    elevenlabs_voice_id: Optional[str] = None
+    model_id: str = "eleven_multilingual_v2"
+    stability: float = 0.5
+    similarity_boost: float = 0.75
+    style: float = 0.0
+    speed: float = 1.0
+    use_speaker_boost: bool = True
+    language_code: Optional[str] = None
+
+
 class Voiceover(VoiceoverBase):
     id: int
     project_id: int
+    voice_id: Optional[int] = None
+    tts_settings: Optional[str] = None
     audio_file_path: Optional[str] = None
     scene_timings: Optional[str] = None
     total_duration: Optional[float] = None
     captions_enabled: bool = False
     caption_style: str = "word_highlight"
+    caption_alignment: int = 2
+    caption_margin_v: int = 60
     status: str
     created_at: datetime
 
@@ -329,6 +388,8 @@ class UpdateSceneTimings(BaseModel):
 class UpdateCaptionSettings(BaseModel):
     captions_enabled: bool
     caption_style: str = "word_highlight"
+    caption_alignment: Optional[int] = None  # ASS 1-9; default 2 (bottom center)
+    caption_margin_v: Optional[int] = None   # vertical margin pixels; default 60
 
 
 class RenderVideoRequest(BaseModel):

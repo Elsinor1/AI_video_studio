@@ -53,6 +53,12 @@ function NavigationBar({ theme = 'light', onToggleTheme }) {
           >
             Image References
           </button>
+          <button
+            className={`navbar-link ${location.pathname === '/voices' ? 'active' : ''}`}
+            onClick={() => navigate('/voices')}
+          >
+            Voices
+          </button>
         </div>
       </div>
     </nav>

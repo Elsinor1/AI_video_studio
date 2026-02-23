@@ -216,8 +216,13 @@ def generate_voiceover_task(project_id: int, voiceover_id: int):
         os.makedirs(audio_dir, exist_ok=True)
         audio_path = os.path.join(audio_dir, f"voiceover_{voiceover_id}.mp3")
 
+        tts_kwargs = {}
+        if voiceover.tts_settings:
+            tts_kwargs = _json.loads(voiceover.tts_settings)
+            tts_kwargs = {k: v for k, v in tts_kwargs.items() if v is not None}
+
         try:
-            alignment = ai_services.generate_full_script_speech(full_text, audio_path)
+            alignment = ai_services.generate_full_script_speech(full_text, audio_path, **tts_kwargs)
         except Exception as e:
             print(f"[VOICEOVER] TTS failed: {e}")
             crud.update_voiceover(db=db, voiceover_id=voiceover_id, status="error")
@@ -303,6 +308,8 @@ def render_video_task(project_id: int, voiceover_id: int):
                 "duration": duration,
                 "transition_type": t.get("transition_type", "cut"),
                 "transition_duration": t.get("transition_duration", 0.0),
+                "image_animation": t.get("image_animation"),
+                "image_effect": t.get("image_effect"),
             })
 
         if not scene_entries:
@@ -315,7 +322,12 @@ def render_video_task(project_id: int, voiceover_id: int):
             alignment = _json.loads(voiceover.alignment_data)
             ass_dir = os.path.join("storage", f"project_{project_id}", "voiceovers")
             ass_path = os.path.join(ass_dir, f"captions_{voiceover_id}.ass")
-            ai_services.generate_captions_ass(alignment, voiceover.caption_style, ass_path)
+            align = getattr(voiceover, "caption_alignment", 2)
+            margin_v = getattr(voiceover, "caption_margin_v", 60)
+            ai_services.generate_captions_ass(
+                alignment, voiceover.caption_style, ass_path,
+                caption_alignment=align, caption_margin_v=margin_v,
+            )
 
         video = crud.create_video(db=db, project_id=project_id, voiceover_id=voiceover_id)
         output_dir = os.path.join("storage", f"project_{project_id}", "videos")

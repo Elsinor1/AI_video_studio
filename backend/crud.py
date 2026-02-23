@@ -284,6 +284,44 @@ def delete_scene_style(db: Session, style_id: int):
     return True
 
 
+# Voice CRUD (predefined ElevenLabs voices)
+def create_voice(db: Session, voice: schemas.VoiceCreate):
+    db_voice = models.Voice(**voice.dict())
+    db.add(db_voice)
+    db.commit()
+    db.refresh(db_voice)
+    return db_voice
+
+
+def get_voice(db: Session, voice_id: int):
+    return db.query(models.Voice).filter(models.Voice.id == voice_id).first()
+
+
+def get_voices(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.Voice).order_by(desc(models.Voice.created_at)).offset(skip).limit(limit).all()
+
+
+def update_voice(db: Session, voice_id: int, voice: schemas.VoiceUpdate):
+    db_voice = db.query(models.Voice).filter(models.Voice.id == voice_id).first()
+    if not db_voice:
+        return None
+    update_data = voice.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_voice, field, value)
+    db.commit()
+    db.refresh(db_voice)
+    return db_voice
+
+
+def delete_voice(db: Session, voice_id: int):
+    db_voice = db.query(models.Voice).filter(models.Voice.id == voice_id).first()
+    if not db_voice:
+        return False
+    db.delete(db_voice)
+    db.commit()
+    return True
+
+
 # Image CRUD
 def create_image(db: Session, image: schemas.ImageCreate):
     db_image = models.Image(**image.dict())
@@ -343,8 +381,8 @@ def get_video_by_project(db: Session, project_id: int):
 
 
 # Voiceover CRUD
-def create_voiceover(db: Session, project_id: int):
-    db_vo = models.Voiceover(project_id=project_id)
+def create_voiceover(db: Session, project_id: int, voice_id: int = None, tts_settings: str = None):
+    db_vo = models.Voiceover(project_id=project_id, voice_id=voice_id, tts_settings=tts_settings)
     db.add(db_vo)
     db.commit()
     db.refresh(db_vo)

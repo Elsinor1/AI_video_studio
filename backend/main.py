@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, Bod
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import os
 import re
 import shutil
@@ -149,6 +149,7 @@ def generate_script_endpoint(body: schemas.ScriptGenerationRequest, db: Session 
             title=body.title or "",
             description=body.description,
             script_prompt_instructions=script_prompt.script_description,
+            model=body.model,
         )
         return schemas.ScriptGenerationResponse(script_content=script_content)
     except Exception as e:
@@ -172,6 +173,7 @@ def iterate_script(project_id: int, body: schemas.ScriptIterateRequest, db: Sess
             current_script=current_script,
             previous_feedback_list=previous_feedbacks,
             new_feedback=body.feedback.strip(),
+            model=body.model,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Script revision failed: {str(e)}")
@@ -577,6 +579,32 @@ def reject_image(image_id: int, visual_style_id: int = None, db: Session = Depen
     return {"message": "Image rejected, generating new one"}
 
 
+# Voice endpoints (predefined ElevenLabs voices)
+@app.get("/api/voices", response_model=List[schemas.Voice])
+def list_voices(db: Session = Depends(get_db)):
+    return crud.get_voices(db=db)
+
+
+@app.post("/api/voices", response_model=schemas.Voice, status_code=201)
+def create_voice(voice: schemas.VoiceCreate, db: Session = Depends(get_db)):
+    return crud.create_voice(db=db, voice=voice)
+
+
+@app.put("/api/voices/{voice_id}", response_model=schemas.Voice)
+def update_voice(voice_id: int, voice: schemas.VoiceUpdate, db: Session = Depends(get_db)):
+    updated = crud.update_voice(db=db, voice_id=voice_id, voice=voice)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Voice not found")
+    return updated
+
+
+@app.delete("/api/voices/{voice_id}")
+def delete_voice(voice_id: int, db: Session = Depends(get_db)):
+    if not crud.delete_voice(db=db, voice_id=voice_id):
+        raise HTTPException(status_code=404, detail="Voice not found")
+    return {"message": "Voice deleted"}
+
+
 # Video endpoints
 @app.post("/api/projects/{project_id}/create-video")
 def create_video(project_id: int, db: Session = Depends(get_db)):
@@ -612,13 +640,41 @@ def get_project_video(project_id: int, db: Session = Depends(get_db)):
 
 # Voiceover endpoints
 @app.post("/api/projects/{project_id}/generate-voiceover")
-def generate_voiceover(project_id: int, db: Session = Depends(get_db)):
-    """Generate voiceover for the full project script"""
+def generate_voiceover(project_id: int, body: Optional[schemas.GenerateVoiceoverRequest] = Body(default=None), db: Session = Depends(get_db)):
+    """Generate voiceover for the full project script with optional TTS settings"""
+    import json as _json
+
     project = crud.get_project(db=db, project_id=project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    voiceover = crud.create_voiceover(db=db, project_id=project_id)
+    tts = {}
+    voice_db_id = None
+    elevenlabs_voice_id = None
+    if body:
+        if body.voice_id:
+            voice_db_id = body.voice_id
+            voice = crud.get_voice(db=db, voice_id=body.voice_id)
+            if voice:
+                elevenlabs_voice_id = voice.elevenlabs_voice_id
+        if body.elevenlabs_voice_id:
+            elevenlabs_voice_id = body.elevenlabs_voice_id
+        tts = {
+            "elevenlabs_voice_id": elevenlabs_voice_id,
+            "model_id": body.model_id,
+            "stability": body.stability,
+            "similarity_boost": body.similarity_boost,
+            "style": body.style,
+            "speed": body.speed,
+            "use_speaker_boost": body.use_speaker_boost,
+            "language_code": body.language_code,
+        }
+
+    voiceover = crud.create_voiceover(
+        db=db, project_id=project_id,
+        voice_id=voice_db_id,
+        tts_settings=_json.dumps(tts) if tts else None,
+    )
 
     from .tasks import generate_voiceover_task
     generate_voiceover_task.delay(project_id, voiceover.id)
@@ -774,12 +830,15 @@ def update_voiceover_caption_settings(
     if not voiceover:
         raise HTTPException(status_code=404, detail="No voiceover found")
 
-    crud.update_voiceover(
-        db=db,
-        voiceover_id=voiceover.id,
-        captions_enabled=body.captions_enabled,
-        caption_style=body.caption_style,
-    )
+    update_kw = {
+        "captions_enabled": body.captions_enabled,
+        "caption_style": body.caption_style,
+    }
+    if body.caption_alignment is not None:
+        update_kw["caption_alignment"] = body.caption_alignment
+    if body.caption_margin_v is not None:
+        update_kw["caption_margin_v"] = body.caption_margin_v
+    crud.update_voiceover(db=db, voiceover_id=voiceover.id, **update_kw)
     return {"message": "Caption settings updated"}
 
 
